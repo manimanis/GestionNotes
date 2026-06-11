@@ -1,0 +1,15 @@
+# ============================================
+# Gestion de Notes - Routage Apache
+# http://127.0.0.1/GestionNotes/
+# 
+# IMPORTANT : Ce fichier nécessite AllowOverride
+# Voir DOCUMENTATION.md pour l'activation
+# ============================================
+
+Options -Indexes +MultiViews
+RewriteEngine On
+
+# Rediriger TOUTE requête vers index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]

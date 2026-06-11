@@ -1,0 +1,14 @@
+RewriteEngine On
+
+# Si l'URL contient /GestionNotes/api, rediriger vers l'API
+RewriteRule ^api/(.*)$ public/$1 [QSA,L]
+
+# Si le fichier ou dossier n'existe pas dans public, rediriger vers index.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^public/(.*)$ public/index.php [QSA,L]
+
+# Pour les accès directs (sans /GestionNotes/), rediriger vers public
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ public/$1 [QSA,L]
