@@ -120,6 +120,56 @@ class EpreuveController
             $stmt->execute([UUID::generate(), $eleve['id'], $id]);
         }
         
+        // Si la formule est vide (aucune évaluation associée),
+        // créer automatiquement une évaluation avec les mêmes données que l'épreuve
+        $hasValidEvals = false;
+        if (is_array($formule) && !empty($formule)) {
+            foreach ($formule as $item) {
+                if (isset($item['eval']) && !empty($item['eval'])) {
+                    $hasValidEvals = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!$hasValidEvals) {
+            // Déterminer le prochain ordre pour l'évaluation
+            $stmt = $db->prepare('SELECT COALESCE(MAX(ordre), 0) + 1 as next_ordre FROM evaluations WHERE feuille_id = ?');
+            $stmt->execute([$data['feuille_id']]);
+            $nextEvalOrdre = (int)$stmt->fetch()['next_ordre'];
+            
+            $evalId = UUID::generate();
+            
+            $stmt = $db->prepare('
+                INSERT INTO evaluations (id, feuille_id, nom, date_evaluation, bareme, coefficient, ordre)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ');
+            
+            $stmt->execute([
+                $evalId,
+                $data['feuille_id'],
+                $data['nom'],
+                null,
+                20,
+                (float)($data['coefficient'] ?? 1),
+                $nextEvalOrdre
+            ]);
+            
+            // Créer des entrées de notes pour tous les élèves existants
+            foreach ($eleves as $eleve) {
+                $stmt = $db->prepare('INSERT OR IGNORE INTO notes_evaluations (id, eleve_id, evaluation_id) VALUES (?, ?, ?)');
+                $stmt->execute([UUID::generate(), $eleve['id'], $evalId]);
+            }
+            
+            // Mettre à jour la formule de l'épreuve pour référencer la nouvelle évaluation
+            $nouvelleFormule = json_encode([['eval' => $evalId, 'coef' => 1]]);
+            $stmt = $db->prepare('UPDATE epreuves SET formule = ? WHERE id = ?');
+            $stmt->execute([$nouvelleFormule, $id]);
+            
+            // Recalculer les notes d'épreuves
+            self::recalculateForFeuille($data['feuille_id']);
+        }
+        
         $stmt = $db->prepare('SELECT * FROM epreuves WHERE id = ?');
         $stmt->execute([$id]);
         

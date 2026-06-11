@@ -19,6 +19,17 @@
           </div>
         </div>
         
+        <!-- Validation Bar -->
+        <div v-if="hasChanges" class="validation-bar">
+          <span class="validation-info">📝 Modifications non sauvegardées</span>
+          <div class="validation-actions">
+            <button class="btn btn-sm btn-secondary" @click="cancelChanges" :disabled="saving">Annuler</button>
+            <button class="btn btn-sm btn-success" @click="validateChanges" :disabled="saving">
+              {{ saving ? '⏳ Sauvegarde...' : '✅ Valider' }}
+            </button>
+          </div>
+        </div>
+        
         <!-- Configuration Bar -->
         <div class="config-bar">
           <button class="btn btn-sm btn-primary" @click="showAddEvalModal = true">+ Évaluation</button>
@@ -67,7 +78,7 @@
               <tr v-for="eleve in sortedEleves" :key="eleve.id">
                 <td class="sticky-col">{{ eleve.numero_ordre }}</td>
                 <td class="sticky-col">
-                  <div class="eleve-name">
+                  <div class="eleve-name clickable" @click="openEditEleve(eleve)" title="Cliquer pour modifier">
                     <strong>{{ eleve.nom }}</strong> {{ eleve.prenom }}
                   </div>
                 </td>
@@ -75,7 +86,7 @@
                   <input
                     type="number"
                     class="inline-edit"
-                    :value="formatNote(eleve.notes_evaluations[e.id])"
+                    :value="getNoteValue(eleve.id, e.id)"
                     @change="saveNote(eleve.id, e.id, $event.target.value)"
                     min="0"
                     :max="e.bareme"
@@ -83,10 +94,10 @@
                   />
                 </td>
                 <td v-for="ep in epreuves" :key="ep.id" class="note-cell calculated">
-                  {{ formatNote(eleve.notes_epreuves[ep.id]) }}
+                  {{ formatNote(getEpreuveNote(eleve, ep.id)) }}
                 </td>
                 <td class="moyenne-cell" :class="getMoyenneClass(eleve.moyenne)">
-                  <strong>{{ eleve.moyenne !== null ? eleve.moyenne.toFixed(2) : '-' }}</strong>
+                  <strong>{{ eleve.moyenne !== null && eleve.moyenne !== undefined ? eleve.moyenne.toFixed(2) : '-' }}</strong>
                 </td>
                 <td class="rang-cell">
                   <span class="badge" :class="getRangBadgeClass(eleve.rang)">{{ eleve.rang }}</span>
@@ -99,7 +110,7 @@
           </table>
         </div>
         
-        <!-- Modal Import Données (Élèves + Notes) -->
+        <!-- Modal Import Données -->
         <div v-if="showImportDataModal" class="modal-overlay" @click.self="showImportDataModal = false">
           <div class="modal-content" style="max-width: 900px;">
             <div class="modal-header">
@@ -115,10 +126,6 @@
                 <li>Associez chaque colonne au champ correspondant</li>
                 <li>Vérifiez l'aperçu puis cliquez sur "Importer"</li>
               </ol>
-              <p style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">
-                Les colonnes peuvent être dans n'importe quel ordre. Nom et prénom peuvent être dans la même colonne.
-                <br>Les notes vides ou "-" sont ignorées. Les élèves existants (même identifiant) sont mis à jour.
-              </p>
             </div>
             <div class="form-group">
               <label class="form-label">Données copiées depuis Excel</label>
@@ -126,7 +133,7 @@
                 v-model="importDataText"
                 class="form-control"
                 rows="8"
-                placeholder="Collez ici les données depuis Excel (séparées par des tabulations)&#10;&#10;Les colonnes peuvent être dans n'importe quel ordre.&#10;Nom et prénom peuvent être dans la même colonne."
+                placeholder="Collez ici les données depuis Excel (séparées par des tabulations)"
                 style="font-family: monospace; font-size: 0.85rem;"
               ></textarea>
             </div>
@@ -163,16 +170,14 @@
                   <option v-for="(col, i) in importDataColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
                 </select>
               </div>
-              <div class="mapping-row" v-if="importColMapping.nom !== '' && importColMapping.prenom === ''">
+              <div v-if="importColMapping.nom !== '' && importColMapping.prenom === ''" class="mapping-row">
                 <label class="form-label" style="min-width: 120px;">Séparateur :</label>
                 <select v-model="importNameSeparator" class="form-control" style="max-width: 250px;">
                   <option value=" ">Espace</option>
                   <option value=",">Virgule (,)</option>
                   <option value="-">Tiret (-)</option>
                 </select>
-                <span class="text-muted" style="font-size: 0.75rem; margin-left: 0.5rem;">Séparateur entre nom et prénom dans la même colonne</span>
               </div>
-              <!-- Notes mapping -->
               <div v-if="evaluations.length > 0" style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
                 <p><strong>Notes des évaluations :</strong></p>
                 <div class="mapping-row" v-for="(ev, idx) in evaluations" :key="ev.id">
@@ -185,7 +190,6 @@
               </div>
             </div>
 
-            <!-- Aperçu des données -->
             <div v-if="importDataPreview.length > 0" class="import-preview">
               <p><strong>Aperçu ({{ importDataPreview.length }} élève(s) détecté(s)) :</strong></p>
               <table class="data-table" style="font-size: 0.75rem;">
@@ -195,7 +199,7 @@
                     <th>Identifiant</th>
                     <th>Nom</th>
                     <th>Prénom</th>
-                    <th v-for="(e, i) in evaluations" :key="e.id">{{ e.nom }}</th>
+                    <th v-for="e in evaluations" :key="e.id">{{ e.nom }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -213,25 +217,64 @@
               </table>
             </div>
 
-            <div v-if="importDataResult" class="import-result" :class="(importDataResult.imported > 0 || importDataResult.updated > 0) ? 'import-success' : 'import-error'">
-              <p v-if="importDataResult.imported > 0">✅ {{ importDataResult.imported }} élève(s) importé(s) avec succès.</p>
-              <p v-if="importDataResult.updated > 0">🔄 {{ importDataResult.updated }} élève(s) mis à jour.</p>
-              <p v-if="importDataResult.errors && importDataResult.errors.length > 0" class="text-danger">
-                ⚠️ {{ importDataResult.errors.length }} erreur(s) :
-                <ul>
-                  <li v-for="(err, i) in importDataResult.errors" :key="i">{{ err }}</li>
-                </ul>
-              </p>
-            </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" @click="showImportDataModal = false">Fermer</button>
-              <button type="button" class="btn btn-primary" @click="importData" :disabled="importingData || importDataPreview.length === 0">
-                {{ importingData ? 'Importation...' : 'Importer' }}
+              <button type="button" class="btn btn-primary" @click="importData" :disabled="importDataPreview.length === 0">
+                Importer
               </button>
             </div>
           </div>
         </div>
         
+        <!-- Modal Édition Élève -->
+        <div v-if="showEditEleveModal" class="modal-overlay" @click.self="showEditEleveModal = false">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h2>Modifier l'élève</h2>
+              <button class="btn btn-sm btn-outline" @click="showEditEleveModal = false">✕</button>
+            </div>
+            <form @submit.prevent="updateEleve">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Identifiant (16 chiffres)</label>
+                  <input type="text" v-model="editEleveForm.identifiant" class="form-control" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">N° ordre</label>
+                  <input type="number" v-model="editEleveForm.numero_ordre" class="form-control" required />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Nom</label>
+                  <input type="text" v-model="editEleveForm.nom" class="form-control" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Prénom</label>
+                  <input type="text" v-model="editEleveForm.prenom" class="form-control" required />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Nom tuteur</label>
+                  <input type="text" v-model="editEleveForm.nom_tuteur" class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Prénom tuteur</label>
+                  <input type="text" v-model="editEleveForm.prenom_tuteur" class="form-control" />
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-danger" @click="deleteEleveFromModal">🗑️ Supprimer</button>
+                <div class="flex gap-1">
+                  <button type="button" class="btn btn-secondary" @click="showEditEleveModal = false">Annuler</button>
+                  <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
         <!-- Modal Ajout Élève -->
         <div v-if="showAddEleveModal" class="modal-overlay" @click.self="showAddEleveModal = false">
           <div class="modal-content">
@@ -348,7 +391,7 @@
                   />
                 </div>
                 <div v-if="selectedEvalsForFormule.length === 0" class="text-muted" style="font-size: 0.8rem; margin-top: 0.5rem;">
-                  Aucune évaluation sélectionnée
+                  Aucune évaluation sélectionnée — une évaluation sera créée automatiquement
                 </div>
               </div>
               <div class="modal-footer">
@@ -368,7 +411,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import apiClient from '@/api/client'
 import Sidebar from '@/components/Sidebar.vue'
@@ -376,15 +419,529 @@ import Sidebar from '@/components/Sidebar.vue'
 const route = useRoute()
 const feuilleId = computed(() => route.params.id)
 
+// ============================================
+// ÉTAT RÉACTIF
+// ============================================
 const loading = ref(true)
+const saving = ref(false)
 const feuille = ref(null)
 const eleves = ref([])
 const evaluations = ref([])
 const epreuves = ref([])
+const notesEval = ref({}) // { "eleveId:evalId": noteValue }
+const hasChanges = ref(false)
 
 // Tri
 const sortKey = ref('')
 const sortDirection = ref('asc')
+
+// Modals
+const showAddEleveModal = ref(false)
+const showAddEvalModal = ref(false)
+const showAddEpreuveModal = ref(false)
+const showImportDataModal = ref(false)
+const showEditEleveModal = ref(false)
+const editEleveForm = ref({ id: '', identifiant: '', numero_ordre: 1, nom: '', prenom: '', nom_tuteur: '', prenom_tuteur: '' })
+
+// Import
+const importDataText = ref('')
+const importColMapping = ref({ identifiant: '', numero_ordre: '', nom: '', prenom: '' })
+const importNameSeparator = ref(' ')
+
+// Forms
+const eleveForm = ref({ identifiant: '', numero_ordre: 1, nom: '', prenom: '', nom_tuteur: '', prenom_tuteur: '' })
+const evalForm = ref({ nom: '', bareme: 20, coefficient: 1, date_evaluation: '' })
+const epreuveForm = ref({ nom: '', coefficient: 1 })
+const selectedEvalsForFormule = ref([])
+const formuleCoefs = ref({})
+
+// ============================================
+// FONCTIONS DE CALCUL EN MÉMOIRE
+// ============================================
+
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
+function calculateEpreuveNote(formule, studentNotesEval, evalsData) {
+  let config
+  try {
+    config = JSON.parse(formule)
+  } catch { return null }
+  
+  if (!config || !Array.isArray(config) || config.length === 0) return null
+
+  const evalIndex = {}
+  evalsData.forEach(e => { evalIndex[e.id] = e })
+
+  let totalNote = 0, totalCoef = 0
+
+  for (const item of config) {
+    const evalId = item.eval
+    const coef = parseFloat(item.coef) || 1
+    const noteVal = studentNotesEval[evalId]
+
+    if (!evalId || noteVal === null || noteVal === undefined) continue
+
+    let note = parseFloat(noteVal)
+    const bareme = evalIndex[evalId] ? parseFloat(evalIndex[evalId].bareme) : 20
+
+    if (bareme > 0 && bareme !== 20) {
+      note = (note / bareme) * 20
+    }
+
+    totalNote += note * coef
+    totalCoef += coef
+  }
+
+  if (totalCoef === 0) return null
+  return Math.round((totalNote / totalCoef) * 100) / 100
+}
+
+function calculateWeightedAverage(notesEpreuvesData, epreuvesData) {
+  let totalNote = 0, totalCoef = 0
+
+  for (const ep of epreuvesData) {
+    const coef = parseFloat(ep.coefficient)
+    const noteVal = notesEpreuvesData[ep.id]
+
+    if (noteVal !== null && noteVal !== undefined) {
+      totalNote += parseFloat(noteVal) * coef
+      totalCoef += coef
+    }
+  }
+
+  if (totalCoef === 0) return null
+  return Math.round((totalNote / totalCoef) * 100) / 100
+}
+
+function generateObservation(moyenne) {
+  if (moyenne === null || moyenne === undefined) return 'Notes insuffisantes'
+  if (moyenne >= 16) return 'Excellent'
+  if (moyenne >= 14) return 'Très bien'
+  if (moyenne >= 12) return 'Bien'
+  if (moyenne >= 10) return 'Passable'
+  return 'Insuffisant'
+}
+
+function recalculateAll() {
+  // Recalculate all grades for all students
+  for (const eleve of eleves.value) {
+    // Build notesEval for this student
+    const studentNotes = {}
+    for (const ev of evaluations.value) {
+      const key = eleve.id + ':' + ev.id
+      studentNotes[ev.id] = notesEval.value[key] !== undefined ? notesEval.value[key] : null
+    }
+
+    // Calculate épreuve notes
+    const epreuveNotes = {}
+    for (const ep of epreuves.value) {
+      epreuveNotes[ep.id] = calculateEpreuveNote(ep.formule, studentNotes, evaluations.value)
+    }
+    eleve.notes_epreuves = epreuveNotes
+
+    // Calculate average
+    eleve.moyenne = calculateWeightedAverage(epreuveNotes, epreuves.value)
+
+    // Generate observation
+    eleve.observation = generateObservation(eleve.moyenne)
+  }
+
+  // Calculate ranks
+  calculateRanks()
+}
+
+function calculateRanks() {
+  const sorted = [...eleves.value].filter(e => e.moyenne !== null && e.moyenne !== undefined)
+    .sort((a, b) => b.moyenne - a.moyenne)
+
+  const allSorted = [...eleves.value]
+
+  let currentRang = 1, previousMoyenne = null, skipCount = 0
+
+  for (const eleve of sorted) {
+    const moyenne = eleve.moyenne
+    if (previousMoyenne !== null && moyenne < previousMoyenne) {
+      currentRang += skipCount
+      skipCount = 1
+    } else if (previousMoyenne !== null && moyenne === previousMoyenne) {
+      skipCount++
+    } else {
+      skipCount = 1
+    }
+    eleve.rang = currentRang
+    previousMoyenne = moyenne
+  }
+
+  // Set '-' for students without moyenne
+  for (const eleve of allSorted) {
+    if (eleve.moyenne === null || eleve.moyenne === undefined) {
+      eleve.rang = '-'
+    }
+  }
+}
+
+// ============================================
+// CHARGEMENT DES DONNÉES
+// ============================================
+
+async function loadFeuille() {
+  loading.value = true
+  try {
+    const res = await apiClient.get(`/feuilles/${feuilleId.value}`)
+    const data = res.data.data
+    feuille.value = data.feuille
+    eleves.value = data.eleves || []
+    evaluations.value = data.evaluations || []
+    epreuves.value = data.epreuves || []
+
+    // Flatten notes_evaluations
+    const ne = {}
+    for (const eleve of eleves.value) {
+      if (eleve.notes_evaluations) {
+        for (const [evalId, note] of Object.entries(eleve.notes_evaluations)) {
+          ne[eleve.id + ':' + evalId] = note
+        }
+        
+      }
+    }
+    notesEval.value = ne
+
+    hasChanges.value = false
+  } catch (e) {
+    console.error('Erreur chargement feuille:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// ============================================
+// VALIDATION / ANNULATION
+// ============================================
+
+async function validateChanges() {
+  saving.value = true
+  try {
+    await apiClient.post(`/feuilles/${feuilleId.value}/validate`, {
+      eleves: eleves.value.map(e => ({
+        id: e.id,
+        identifiant: e.identifiant,
+        numero_ordre: e.numero_ordre,
+        nom: e.nom,
+        prenom: e.prenom,
+        nom_tuteur: e.nom_tuteur || null,
+        prenom_tuteur: e.prenom_tuteur || null
+      })),
+      evaluations: evaluations.value.map(e => ({
+        id: e.id,
+        nom: e.nom,
+        date_evaluation: e.date_evaluation || null,
+        bareme: e.bareme,
+        coefficient: e.coefficient,
+        ordre: e.ordre || 0
+      })),
+      epreuves: epreuves.value.map(e => ({
+        id: e.id,
+        nom: e.nom,
+        formule: e.formule,
+        coefficient: e.coefficient,
+        ordre: e.ordre || 0
+      })),
+      notes_evaluations: notesEval.value
+    })
+    await loadFeuille()
+  } catch (e) {
+    alert(e.response?.data?.message || 'Erreur lors de la sauvegarde')
+  } finally {
+    saving.value = false
+  }
+}
+
+function cancelChanges() {
+  if (!confirm('Annuler toutes les modifications non sauvegardées ?')) return
+  loadFeuille()
+}
+
+// ============================================
+// OPÉRATIONS CRUD EN MÉMOIRE
+// ============================================
+
+function saveNote(eleveId, evalId, value) {
+  const note = value === '' ? null : parseFloat(value)
+  const key = eleveId + ':' + evalId
+  notesEval.value[key] = note
+  hasChanges.value = true
+  recalculateAll()
+}
+
+function addEleve() {
+  const newId = generateUUID()
+  const maxOrdre = eleves.value.reduce((max, e) => Math.max(max, e.numero_ordre || 0), 0)
+  eleves.value.push({
+    id: newId,
+    feuille_id: feuilleId.value,
+    identifiant: eleveForm.value.identifiant,
+    numero_ordre: parseInt(eleveForm.value.numero_ordre) || (maxOrdre + 1),
+    nom: eleveForm.value.nom,
+    prenom: eleveForm.value.prenom,
+    nom_tuteur: eleveForm.value.nom_tuteur || null,
+    prenom_tuteur: eleveForm.value.prenom_tuteur || null,
+    notes_evaluations: {},
+    notes_epreuves: {},
+    moyenne: null,
+    observation: 'Notes insuffisantes',
+    rang: '-'
+  })
+  showAddEleveModal.value = false
+  eleveForm.value = { identifiant: '', numero_ordre: 1, nom: '', prenom: '', nom_tuteur: '', prenom_tuteur: '' }
+  hasChanges.value = true
+  recalculateAll()
+}
+
+function updateEleve() {
+  const idx = eleves.value.findIndex(e => e.id === editEleveForm.value.id)
+  if (idx !== -1) {
+    eleves.value[idx].identifiant = editEleveForm.value.identifiant
+    eleves.value[idx].numero_ordre = parseInt(editEleveForm.value.numero_ordre)
+    eleves.value[idx].nom = editEleveForm.value.nom
+    eleves.value[idx].prenom = editEleveForm.value.prenom
+    eleves.value[idx].nom_tuteur = editEleveForm.value.nom_tuteur || null
+    eleves.value[idx].prenom_tuteur = editEleveForm.value.prenom_tuteur || null
+    hasChanges.value = true
+  }
+  showEditEleveModal.value = false
+}
+
+function deleteEleveFromModal() {
+  if (!confirm(`Supprimer l'élève ${editEleveForm.value.nom} ${editEleveForm.value.prenom} ?\n\nCette action sera appliquée lors de la validation.`)) return
+  eleves.value = eleves.value.filter(e => e.id !== editEleveForm.value.id)
+  showEditEleveModal.value = false
+  hasChanges.value = true
+  recalculateAll()
+}
+
+function addEvaluation() {
+  const newId = generateUUID()
+  const maxOrdre = evaluations.value.reduce((max, e) => Math.max(max, e.ordre || 0), 0)
+  evaluations.value.push({
+    id: newId,
+    feuille_id: feuilleId.value,
+    nom: evalForm.value.nom,
+    date_evaluation: evalForm.value.date_evaluation || null,
+    bareme: parseFloat(evalForm.value.bareme) || 20,
+    coefficient: parseFloat(evalForm.value.coefficient) || 1,
+    ordre: maxOrdre + 1
+  })
+  showAddEvalModal.value = false
+  evalForm.value = { nom: '', bareme: 20, coefficient: 1, date_evaluation: '' }
+  hasChanges.value = true
+  recalculateAll()
+}
+
+function addEpreuve() {
+  const newId = generateUUID()
+  const maxOrdre = epreuves.value.reduce((max, e) => Math.max(max, e.ordre || 0), 0)
+
+  let formuleItems = selectedEvalsForFormule.value.map(evalId => ({
+    eval: evalId,
+    coef: parseFloat(formuleCoefs.value[evalId]) || 0.5
+  }))
+
+  // Si aucune évaluation sélectionnée, créer automatiquement une évaluation
+  if (formuleItems.length === 0) {
+    const evalId = generateUUID()
+    const evalMaxOrdre = evaluations.value.reduce((max, e) => Math.max(max, e.ordre || 0), 0)
+    evaluations.value.push({
+      id: evalId,
+      feuille_id: feuilleId.value,
+      nom: epreuveForm.value.nom,
+      date_evaluation: null,
+      bareme: 20,
+      coefficient: parseFloat(epreuveForm.value.coefficient) || 1,
+      ordre: evalMaxOrdre + 1
+    })
+    formuleItems = [{ eval: evalId, coef: 1 }]
+  }
+
+  epreuves.value.push({
+    id: newId,
+    feuille_id: feuilleId.value,
+    nom: epreuveForm.value.nom,
+    formule: JSON.stringify(formuleItems),
+    coefficient: parseFloat(epreuveForm.value.coefficient) || 1,
+    ordre: maxOrdre + 1
+  })
+
+  showAddEpreuveModal.value = false
+  epreuveForm.value = { nom: '', coefficient: 1 }
+  selectedEvalsForFormule.value = []
+  formuleCoefs.value = {}
+  hasChanges.value = true
+  recalculateAll()
+}
+
+function deleteEvaluation(id) {
+  if (!confirm('Supprimer cette évaluation ? Cette action sera appliquée lors de la validation.')) return
+  evaluations.value = evaluations.value.filter(e => e.id !== id)
+  // Supprimer les notes associées
+  for (const key of Object.keys(notesEval.value)) {
+    if (key.endsWith(':' + id)) {
+      delete notesEval.value[key]
+    }
+  }
+  hasChanges.value = true
+  recalculateAll()
+}
+
+function deleteEpreuve(id) {
+  if (!confirm('Supprimer cette épreuve ? Cette action sera appliquée lors de la validation.')) return
+  epreuves.value = epreuves.value.filter(e => e.id !== id)
+  hasChanges.value = true
+  recalculateAll()
+}
+
+// ============================================
+// IMPORT DE DONNÉES EN MÉMOIRE
+// ============================================
+
+function openImportDataModal() {
+  importDataText.value = ''
+  importColMapping.value = { identifiant: '', numero_ordre: '', nom: '', prenom: '' }
+  importNameSeparator.value = ' '
+  showImportDataModal.value = true
+}
+
+const importDataColumns = computed(() => {
+  if (!importDataText.value.trim()) return []
+  const firstLine = importDataText.value.trim().split('\n')[0]
+  return firstLine.split('\t').map(c => c.trim()).filter(c => c.length > 0)
+})
+
+const importDataPreview = computed(() => {
+  if (!importDataText.value.trim()) return []
+  const lines = importDataText.value.trim().split('\n')
+  const rows = []
+  const mapping = importColMapping.value
+
+  for (const line of lines) {
+    const cols = line.split('\t')
+    if (cols.length < 2) continue
+
+    const identifiant = formatIdentifiant(mapping.identifiant !== '' ? (cols[mapping.identifiant] || '').trim() : '')
+    const numeroOrdre = mapping.numero_ordre !== '' ? parseInt(cols[mapping.numero_ordre]) : 0
+    const nomRaw = mapping.nom !== '' ? (cols[mapping.nom] || '').trim() : ''
+    const prenomRaw = mapping.prenom !== '' ? (cols[mapping.prenom] || '').trim() : ''
+
+    let nom = nomRaw
+    let prenom = prenomRaw
+
+    if (mapping.prenom === '' && nomRaw) {
+      const sep = importNameSeparator.value
+      const parts = nomRaw.split(sep)
+      if (parts.length >= 2) {
+        nom = parts[0].trim()
+        prenom = parts.slice(1).join(sep).trim()
+      }
+    } else if (mapping.prenom === '__last__') {
+      const sep = importNameSeparator.value
+      const parts = nomRaw.split(sep)
+      if (parts.length >= 2) {
+        nom = parts[0].trim()
+        prenom = parts.slice(1).join(sep).trim()
+      }
+    }
+
+    if (!identifiant && !nom) continue
+
+    const notes = []
+    for (let i = 0; i < evaluations.value.length; i++) {
+      const colIndex = mapping['eval_' + i]
+      if (colIndex !== undefined && colIndex !== '' && cols[colIndex] !== undefined) {
+        const val = cols[colIndex].trim()
+        if (val === '' || val === '-' || val === 'null') {
+          notes.push(null)
+        } else {
+          const num = parseFloat(val.replace(',', '.'))
+          notes.push(isNaN(num) ? null : num)
+        }
+      } else {
+        notes.push(null)
+      }
+    }
+
+    rows.push({ numero_ordre: numeroOrdre || (rows.length + 1), identifiant, nom, prenom, notes })
+  }
+  return rows
+})
+
+function importData() {
+  if (importDataPreview.value.length === 0) return
+
+  let imported = 0, updated = 0
+
+  for (const row of importDataPreview.value) {
+    // Chercher un élève existant par identifiant
+    const existingIdx = eleves.value.findIndex(e => e.identifiant === row.identifiant)
+
+    if (existingIdx !== -1) {
+      // Mettre à jour
+      eleves.value[existingIdx].numero_ordre = row.numero_ordre
+      eleves.value[existingIdx].nom = row.nom
+      eleves.value[existingIdx].prenom = row.prenom
+      updated++
+
+      // Appliquer les notes
+      for (let i = 0; i < evaluations.value.length; i++) {
+        if (i < row.notes.length && row.notes[i] !== null) {
+          const key = eleves.value[existingIdx].id + ':' + evaluations.value[i].id
+          notesEval.value[key] = row.notes[i]
+        }
+      }
+    } else {
+      // Créer un nouvel élève
+      const newId = generateUUID()
+      const maxOrdre = eleves.value.reduce((max, e) => Math.max(max, e.numero_ordre || 0), 0)
+      eleves.value.push({
+        id: newId,
+        feuille_id: feuilleId.value,
+        identifiant: row.identifiant,
+        numero_ordre: row.numero_ordre || (maxOrdre + 1),
+        nom: row.nom,
+        prenom: row.prenom,
+        nom_tuteur: null,
+        prenom_tuteur: null,
+        notes_evaluations: {},
+        notes_epreuves: {},
+        moyenne: null,
+        observation: 'Notes insuffisantes',
+        rang: '-'
+      })
+      imported++
+
+      // Appliquer les notes
+      for (let i = 0; i < evaluations.value.length; i++) {
+        if (i < row.notes.length && row.notes[i] !== null) {
+          const key = newId + ':' + evaluations.value[i].id
+          notesEval.value[key] = row.notes[i]
+        }
+      }
+    }
+  }
+
+  showImportDataModal.value = false
+  hasChanges.value = true
+  recalculateAll()
+  alert(`${imported} élève(s) importé(s), ${updated} mis à jour.`)
+}
+
+// ============================================
+// TRI
+// ============================================
 
 function toggleSort(key) {
   if (sortKey.value === key) {
@@ -410,7 +967,7 @@ function getSortValue(eleve, key) {
   }
   if (key.startsWith('eval_')) {
     const evalId = key.substring(5)
-    return eleve.notes_evaluations?.[evalId] ?? -1
+    return notesEval.value[eleve.id + ':' + evalId] ?? -1
   }
   return ''
 }
@@ -428,138 +985,36 @@ const sortedEleves = computed(() => {
   return list
 })
 
-// Modals
-const showAddEleveModal = ref(false)
-const showAddEvalModal = ref(false)
-const showAddEpreuveModal = ref(false)
-const showImportDataModal = ref(false)
+// ============================================
+// AIDES D'AFFICHAGE
+// ============================================
 
-// Import données
-const importDataText = ref('')
-const importingData = ref(false)
-const importDataResult = ref(null)
-const importColMapping = ref({ identifiant: '', numero_ordre: '', nom: '', prenom: '' })
-const importNameSeparator = ref(' ')
-
-// Forms
-const eleveForm = ref({ identifiant: '', numero_ordre: 1, nom: '', prenom: '', nom_tuteur: '', prenom_tuteur: '' })
-const evalForm = ref({ nom: '', bareme: 20, coefficient: 1, date_evaluation: '' })
-const epreuveForm = ref({ nom: '', coefficient: 1 })
-const selectedEvalsForFormule = ref([])
-const formuleCoefs = ref({})
-
-// Import données - Colonnes détectées
-const importDataColumns = computed(() => {
-  if (!importDataText.value.trim()) return []
-  const firstLine = importDataText.value.trim().split('\n')[0]
-  const cols = firstLine.split('\t')
-  return cols.map(c => c.trim()).filter(c => c.length > 0)
-})
-
-// Import données - Aperçu avec mapping flexible
-const importDataPreview = computed(() => {
-  if (!importDataText.value.trim()) return []
-  const lines = importDataText.value.trim().split('\n')
-  const rows = []
-  const mapping = importColMapping.value
-
-  for (const line of lines) {
-    const cols = line.split('\t')
-    if (cols.length < 2) continue
-
-    const identifiant = mapping.identifiant !== '' ? (cols[mapping.identifiant] || '').trim() : ''
-    const numeroOrdre = mapping.numero_ordre !== '' ? parseInt(cols[mapping.numero_ordre]) : 0
-    const nomRaw = mapping.nom !== '' ? (cols[mapping.nom] || '').trim() : ''
-    const prenomRaw = mapping.prenom !== '' ? (cols[mapping.prenom] || '').trim() : ''
-
-    let nom = nomRaw
-    let prenom = prenomRaw
-
-    // Gérer la fusion nom/prénom dans la même colonne
-    if (mapping.prenom === '' && nomRaw) {
-      const sep = importNameSeparator.value
-      const parts = nomRaw.split(sep)
-      if (parts.length >= 2) {
-        nom = parts[0].trim()
-        prenom = parts.slice(1).join(sep).trim()
-      }
-    } else if (mapping.prenom === '__last__') {
-      const sep = importNameSeparator.value
-      const parts = nomRaw.split(sep)
-      if (parts.length >= 2) {
-        nom = parts[0].trim()
-        prenom = parts.slice(1).join(sep).trim()
-      }
-    }
-
-    if (!identifiant && !nom) continue
-
-    // Récupérer les notes des évaluations
-    const notes = []
-    for (let i = 0; i < evaluations.value.length; i++) {
-      const colIndex = mapping['eval_' + i]
-      if (colIndex !== undefined && colIndex !== '' && cols[colIndex] !== undefined) {
-        const val = cols[colIndex].trim()
-        if (val === '' || val === '-' || val === 'null') {
-          notes.push(null)
-        } else {
-          const num = parseFloat(val.replace(',', '.'))
-          notes.push(isNaN(num) ? null : num)
-        }
-      } else {
-        notes.push(null)
-      }
-    }
-
-    rows.push({
-      numero_ordre: numeroOrdre || (rows.length + 1),
-      identifiant: identifiant,
-      nom: nom,
-      prenom: prenom,
-      notes: notes
-    })
-  }
-  return rows
-})
-
-function openImportDataModal() {
-  importDataText.value = ''
-  importDataResult.value = null
-  importColMapping.value = { identifiant: '', numero_ordre: '', nom: '', prenom: '' }
-  importNameSeparator.value = ' '
-  // Reset eval mapping
-  for (let i = 0; i < 20; i++) {
-    importColMapping.value['eval_' + i] = ''
-  }
-  showImportDataModal.value = true
+function getNoteValue(eleveId, evalId) {
+  const key = eleveId + ':' + evalId
+  const val = notesEval.value[key]
+  if (val === null || val === undefined) return ''
+  return val
 }
 
-async function importData() {
-  if (importDataPreview.value.length === 0) return
-  importingData.value = true
-  importDataResult.value = null
-  try {
-    const res = await apiClient.post(`/feuilles/${feuilleId.value}/import-data`, {
-      rows: importDataPreview.value
-    })
-    importDataResult.value = res.data.data
-    if (res.data.data.imported > 0 || res.data.data.updated > 0) {
-      await loadFeuille()
-    }
-  } catch (e) {
-    alert(e.response?.data?.message || 'Erreur lors de l\'importation')
-  } finally {
-    importingData.value = false
-  }
+function getEpreuveNote(eleve, epreuveId) {
+  return eleve.notes_epreuves?.[epreuveId] ?? null
 }
 
 function formatNote(note) {
   if (note === null || note === undefined || note === '') return ''
-  return note.toFixed(2)
+  return parseFloat(note).toFixed(2)
+}
+
+function formatIdentifiant(identifiant) {
+  if (!identifiant) return ''
+  while (identifiant.length < 12) {
+    identifiant = '0' + identifiant
+  }
+  return identifiant.toUpperCase()
 }
 
 function getMoyenneClass(moyenne) {
-  if (moyenne === null) return ''
+  if (moyenne === null || moyenne === undefined) return ''
   if (moyenne >= 16) return 'moyenne-excellent'
   if (moyenne >= 14) return 'moyenne-tb'
   if (moyenne >= 12) return 'moyenne-bien'
@@ -581,116 +1036,63 @@ function getObservationClass(moyenne) {
   return 'badge-danger'
 }
 
-async function loadFeuille() {
-  loading.value = true
-  try {
-    const res = await apiClient.get(`/feuilles/${feuilleId.value}`)
-    const data = res.data.data
-    feuille.value = data.feuille
-    eleves.value = data.eleves || []
-    evaluations.value = data.evaluations || []
-    epreuves.value = data.epreuves || []
-  } catch (e) {
-    console.error('Erreur chargement feuille:', e)
-  } finally {
-    loading.value = false
+function openEditEleve(eleve) {
+  editEleveForm.value = {
+    id: eleve.id,
+    identifiant: eleve.identifiant || '',
+    numero_ordre: eleve.numero_ordre || 1,
+    nom: eleve.nom || '',
+    prenom: eleve.prenom || '',
+    nom_tuteur: eleve.nom_tuteur || '',
+    prenom_tuteur: eleve.prenom_tuteur || ''
   }
+  showEditEleveModal.value = true
 }
 
-async function saveNote(eleveId, evalId, value) {
-  const note = value === '' ? 'null' : parseFloat(value)
-  try {
-    await apiClient.post('/notes-evaluations', {
-      eleve_id: eleveId,
-      evaluation_id: evalId,
-      note: note
-    })
-    await loadFeuille()
-  } catch (e) {
-    console.error('Erreur enregistrement note:', e)
-    alert(e.response?.data?.message || 'Erreur lors de l\'enregistrement')
-  }
-}
-
-async function addEleve() {
-  try {
-    await apiClient.post('/eleves', {
-      ...eleveForm.value,
-      feuille_id: feuilleId.value
-    })
-    showAddEleveModal.value = false
-    eleveForm.value = { identifiant: '', numero_ordre: 1, nom: '', prenom: '', nom_tuteur: '', prenom_tuteur: '' }
-    await loadFeuille()
-  } catch (e) {
-    alert(e.response?.data?.message || 'Erreur')
-  }
-}
-
-async function addEvaluation() {
-  try {
-    await apiClient.post('/evaluations', {
-      ...evalForm.value,
-      bareme: parseFloat(evalForm.value.bareme) || 20,
-      coefficient: parseFloat(evalForm.value.coefficient) || 1,
-      feuille_id: feuilleId.value
-    })
-    showAddEvalModal.value = false
-    evalForm.value = { nom: '', bareme: 20, coefficient: 1, date_evaluation: '' }
-    await loadFeuille()
-  } catch (e) {
-    alert(e.response?.data?.message || 'Erreur')
-  }
-}
-
-async function addEpreuve() {
-  try {
-    const formuleItems = selectedEvalsForFormule.value.map(evalId => ({
-      eval: evalId,
-      coef: parseFloat(formuleCoefs.value[evalId]) || 0.5
-    }))
-    
-    await apiClient.post('/epreuves', {
-      feuille_id: feuilleId.value,
-      nom: epreuveForm.value.nom,
-      coefficient: parseFloat(epreuveForm.value.coefficient) || 1,
-      formule: JSON.stringify(formuleItems)
-    })
-    showAddEpreuveModal.value = false
-    epreuveForm.value = { nom: '', coefficient: 1 }
-    selectedEvalsForFormule.value = []
-    formuleCoefs.value = {}
-    await loadFeuille()
-  } catch (e) {
-    alert(e.response?.data?.message || 'Erreur')
-  }
-}
-
-async function deleteEvaluation(id) {
-  if (!confirm('Supprimer cette évaluation ?')) return
-  try {
-    await apiClient.delete(`/evaluations/${id}`)
-    await loadFeuille()
-  } catch (e) {
-    alert('Erreur lors de la suppression')
-  }
-}
-
-async function deleteEpreuve(id) {
-  if (!confirm('Supprimer cette épreuve ?')) return
-  try {
-    await apiClient.delete(`/epreuves/${id}`)
-    await loadFeuille()
-  } catch (e) {
-    alert('Erreur lors de la suppression')
-  }
-}
+// ============================================
+// EXPORT (toujours via API)
+// ============================================
 
 async function exportCsv() {
-  window.open(`/api/feuilles/${feuilleId.value}/export/csv`, '_blank')
+  try {
+    const response = await fetch(`/GestionNotes/api/feuilles/${feuilleId.value}/export/csv`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (!response.ok) throw new Error('Erreur lors de l\'export')
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename="?([^";\n]+)"?/)
+    const filename = match ? match[1] : 'export.csv'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    alert(e.message || 'Erreur lors de l\'export CSV')
+  }
 }
 
 async function exportJson() {
-  window.open(`/api/feuilles/${feuilleId.value}/export/json`, '_blank')
+  try {
+    const response = await fetch(`/GestionNotes/api/feuilles/${feuilleId.value}/export/json`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    })
+    if (!response.ok) throw new Error('Erreur lors de l\'export')
+    const blob = await response.blob()
+    const disposition = response.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename="?([^";\n]+)"?/)
+    const filename = match ? match[1] : 'export.json'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    alert(e.message || 'Erreur lors de l\'export JSON')
+  }
 }
 
 async function duplicateFeuille() {
@@ -709,10 +1111,51 @@ async function duplicateFeuille() {
   }
 }
 
+// ============================================
+// INITIALISATION
+// ============================================
+
 onMounted(loadFeuille)
 </script>
 
 <style scoped>
+.validation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #fef3cd;
+  border: 1px solid #ffc107;
+  border-radius: var(--radius-md);
+}
+
+.validation-info {
+  font-weight: 600;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+.validation-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-success {
+  background: #28a745;
+  color: white;
+  border: 1px solid #28a745;
+}
+
+.btn-success:hover {
+  background: #218838;
+}
+
+.btn-success:disabled {
+  background: #6c757d;
+  border-color: #6c757d;
+}
+
 .config-bar {
   display: flex;
   gap: 0.5rem;
@@ -724,7 +1167,7 @@ onMounted(loadFeuille)
 }
 
 .table-container {
-  max-height: calc(100vh - 280px);
+  max-height: calc(100vh - 320px);
   overflow: auto;
 }
 
@@ -795,6 +1238,22 @@ th:hover .btn-del-col {
   text-overflow: ellipsis;
 }
 
+.eleve-name.clickable {
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  transition: background 0.15s, color 0.15s;
+}
+
+.eleve-name.clickable:hover {
+  background: var(--primary-color);
+  color: white;
+}
+
+.eleve-name.clickable:hover strong {
+  color: white;
+}
+
 .note-cell {
   text-align: right;
 }
@@ -855,51 +1314,11 @@ th:hover .btn-del-col {
   padding: 0.75rem;
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-}
-
-.import-instructions ol {
-  margin: 0.5rem 0;
-  padding-left: 1.25rem;
-}
-
-.import-preview {
-  margin: 1rem 0;
-  max-height: 200px;
-  overflow: auto;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 0.5rem;
-}
-
-.import-result {
-  margin: 1rem 0;
-  padding: 0.75rem;
-  border-radius: var(--radius-md);
-}
-
-.import-result ul {
-  margin: 0.25rem 0 0 0;
-  padding-left: 1.25rem;
-  font-size: 0.8rem;
-}
-
-.import-success {
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-}
-
-.import-error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  font-size: 0.85rem;
 }
 
 .import-mapping {
-  margin: 1rem 0;
-  padding: 0.75rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  margin-bottom: 1rem;
 }
 
 .mapping-row {
@@ -909,9 +1328,9 @@ th:hover .btn-del-col {
   margin-bottom: 0.5rem;
 }
 
-@media (max-width: 768px) {
-  .table-container {
-    max-height: none;
-  }
+.import-preview {
+  margin-bottom: 1rem;
+  max-height: 300px;
+  overflow: auto;
 }
 </style>

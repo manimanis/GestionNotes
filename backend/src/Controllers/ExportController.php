@@ -98,15 +98,15 @@ class ExportController
             
             foreach ($evaluations as $eval) {
                 $note = $eleve['notes_evaluations'][$eval['id']] ?? '-';
-                $row[] = $note !== null ? $note : '-';
+                $row[] = str_replace(".", ",", $note !== null ? $note : '-');
             }
             
             foreach ($epreuves as $ep) {
                 $note = $eleve['notes_epreuves'][$ep['id']] ?? '-';
-                $row[] = $note !== null ? $note : '-';
+                $row[] = str_replace(".", ",", $note !== null ? $note : '-');
             }
             
-            $row[] = $eleve['moyenne'] !== null ? $eleve['moyenne'] : '-';
+            $row[] = str_replace(".", ",", $eleve['moyenne'] !== null ? $eleve['moyenne'] : '-');
             $row[] = $eleve['rang'];
             $row[] = $eleve['observation'];
             

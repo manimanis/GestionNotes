@@ -58,6 +58,7 @@ $routes = [
     ['DELETE', '/feuilles/{id}', 'FeuilleController@destroy'],
     ['POST', '/feuilles/{id}/duplicate', 'FeuilleController@duplicate'],
     ['POST', '/feuilles/{id}/import-data', 'FeuilleController@importData'],
+    ['POST', '/feuilles/{id}/validate', 'FeuilleValidateController@validate'],
     ['GET', '/feuilles/{feuilleId}/eleves', 'EleveController@index'],
     ['POST', '/eleves', 'EleveController@store'],
     ['PUT', '/eleves/{id}', 'EleveController@update'],

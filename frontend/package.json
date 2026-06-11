@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && xcopy /E /Y dist\\* ..\\ 2>&1",
+    "build": "vite build && del /q /s ..\\assets\\*.* && xcopy /E /Y dist\\* ..\\ 2>&1",
     "preview": "vite preview"
   },
   "dependencies": {

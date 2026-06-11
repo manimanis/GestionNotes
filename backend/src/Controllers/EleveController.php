@@ -142,7 +142,7 @@ class EleveController
         
         $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         
-        $allowedFields = ['nom', 'prenom', 'numero_ordre', 'nom_tuteur', 'prenom_tuteur'];
+        $allowedFields = ['identifiant', 'nom', 'prenom', 'numero_ordre', 'nom_tuteur', 'prenom_tuteur'];
         $updates = [];
         $params = [];
         
