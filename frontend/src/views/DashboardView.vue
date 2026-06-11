@@ -23,10 +23,10 @@
           </div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon">📊</div>
+          <div class="stat-icon">🏫</div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.totalEvaluations }}</div>
-            <div class="stat-label">Évaluations</div>
+            <div class="stat-value">{{ stats.totalClasses }}</div>
+            <div class="stat-label">Classes</div>
           </div>
         </div>
         <div class="stat-card">
@@ -87,20 +87,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { useAnneeScolaireStore } from '@/stores/anneeScolaire'
 import apiClient from '@/api/client'
 import Sidebar from '@/components/Sidebar.vue'
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const anneeScolaireStore = useAnneeScolaireStore()
 const loading = ref(true)
 const recentFeuilles = ref([])
 const stats = ref({
   totalFeuilles: 0,
   totalEleves: 0,
-  totalEvaluations: 0,
+  totalClasses: 0,
   anneeScolaire: '-'
 })
 
@@ -108,23 +110,52 @@ function toggleDarkMode() {
   themeStore.toggleDarkMode()
 }
 
-onMounted(async () => {
+const allFeuilles = ref([])
+
+async function loadDashboard() {
+  loading.value = true
   try {
+    // Charger toutes les feuilles pour découvrir les années disponibles
     const response = await apiClient.get('/feuilles')
-    recentFeuilles.value = response.data.data || []
+    const data = response.data.data || {}
+    allFeuilles.value = data.feuilles || []
     
-    stats.value.totalFeuilles = recentFeuilles.value.length
-    stats.value.totalEleves = recentFeuilles.value.reduce((sum, f) => sum + (f.nombre_eleves || 0), 0)
-    stats.value.totalEvaluations = recentFeuilles.value.reduce((sum, f) => sum + (f.nombre_evaluations || 0), 0)
+    // Initialiser les années disponibles (toutes les années, pas filtrées)
+    anneeScolaireStore.initFromFeuilles(allFeuilles.value)
     
-    if (recentFeuilles.value.length > 0) {
-      stats.value.anneeScolaire = recentFeuilles.value[0].annee_scolaire
-    }
+    // Filtrer par année sélectionnée
+    applyFilter()
   } catch (e) {
     console.error('Erreur chargement dashboard:', e)
   } finally {
     loading.value = false
   }
+}
+
+function applyFilter() {
+  const annee = anneeScolaireStore.anneeScolaire
+  let filtered = allFeuilles.value
+  if (annee) {
+    filtered = allFeuilles.value.filter(f => f.annee_scolaire === annee)
+  }
+  
+  recentFeuilles.value = filtered
+  stats.value.totalFeuilles = filtered.length
+  stats.value.totalEleves = filtered.reduce((sum, f) => sum + (f.nombre_eleves || 0), 0)
+  stats.value.totalClasses = new Set(filtered.map(f => f.classe).filter(Boolean)).size
+  
+  if (filtered.length > 0) {
+    stats.value.anneeScolaire = annee || filtered[0].annee_scolaire
+  } else {
+    stats.value.anneeScolaire = annee || '-'
+  }
+}
+
+onMounted(loadDashboard)
+
+// Recharger quand l'année scolaire change
+watch(() => anneeScolaireStore.anneeScolaire, () => {
+  applyFilter()
 })
 </script>
 

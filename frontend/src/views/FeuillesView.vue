@@ -158,10 +158,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import apiClient from '@/api/client'
 import Sidebar from '@/components/Sidebar.vue'
+import { useAnneeScolaireStore } from '@/stores/anneeScolaire'
 
+const anneeScolaireStore = useAnneeScolaireStore()
 const loading = ref(true)
 const feuilles = ref([])
 const searchQuery = ref('')
@@ -173,11 +175,14 @@ const creating = ref(false)
 const deleteTarget = ref(null)
 const editTarget = ref(null)
 
-const createForm = ref({ classe: '', matiere: '', trimestre: '', annee_scolaire: '2025-2026' })
+const createForm = ref({ classe: '', matiere: '', trimestre: '', annee_scolaire: anneeScolaireStore.anneeScolaire || '2025-2026' })
 const editForm = ref({ classe: '', matiere: '', trimestre: '', annee_scolaire: '' })
 
 const filteredFeuilles = computed(() => {
   let list = feuilles.value
+  if (anneeScolaireStore.anneeScolaire) {
+    list = list.filter(f => f.annee_scolaire === anneeScolaireStore.anneeScolaire)
+  }
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(f => f.classe.toLowerCase().includes(q) || f.matiere.toLowerCase().includes(q))
@@ -191,7 +196,9 @@ const filteredFeuilles = computed(() => {
 async function loadFeuilles() {
   try {
     const res = await apiClient.get('/feuilles')
-    feuilles.value = res.data.data || []
+    const data = res.data.data || {}
+    feuilles.value = data.feuilles || []
+    anneeScolaireStore.initFromFeuilles(feuilles.value)
   } catch (e) {
     console.error(e)
   } finally {
@@ -204,7 +211,7 @@ async function createFeuille() {
   try {
     await apiClient.post('/feuilles', createForm.value)
     showCreateModal.value = false
-    createForm.value = { classe: '', matiere: '', trimestre: '', annee_scolaire: '2025-2026' }
+    createForm.value = { classe: '', matiere: '', trimestre: '', annee_scolaire: anneeScolaireStore.anneeScolaire || '2025-2026' }
     await loadFeuilles()
   } catch (e) {
     alert(e.response?.data?.message || 'Erreur')

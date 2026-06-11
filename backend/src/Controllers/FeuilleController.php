@@ -23,18 +23,55 @@ class FeuilleController
         $authUser = AuthMiddleware::authenticate();
         
         $db = Database::getInstance()->getConnection();
-        $stmt = $db->prepare('
+        
+        // Filtre optionnel par année scolaire
+        $anneeScolaire = $_GET['annee_scolaire'] ?? null;
+        
+        $whereClause = 'fn.enseignant_id = ?';
+        $params = [$authUser['id']];
+        
+        if ($anneeScolaire) {
+            $whereClause .= ' AND fn.annee_scolaire = ?';
+            $params[] = $anneeScolaire;
+        }
+        
+        $stmt = $db->prepare("
             SELECT fn.*, 
                    (SELECT COUNT(*) FROM eleves WHERE feuille_id = fn.id) as nombre_eleves,
                    (SELECT COUNT(*) FROM evaluations WHERE feuille_id = fn.id) as nombre_evaluations
             FROM feuilles_notes fn
-            WHERE fn.enseignant_id = ?
+            WHERE {$whereClause}
             ORDER BY fn.annee_scolaire DESC, fn.classe ASC, fn.trimestre ASC
-        ');
-        $stmt->execute([$authUser['id']]);
+        ");
+        $stmt->execute($params);
         $feuilles = $stmt->fetchAll();
         
-        Response::success($feuilles);
+        // Nombre total d'élèves uniques (par identifiant) à travers toutes les feuilles filtrées
+        $stmt = $db->prepare("
+            SELECT COUNT(DISTINCT e.identifiant) as total
+            FROM eleves e
+            JOIN feuilles_notes fn ON e.feuille_id = fn.id
+            WHERE {$whereClause}
+        ");
+        $stmt->execute($params);
+        $totalEleves = (int) ($stmt->fetch()['total'] ?? 0);
+        
+        // Nombre total de classes distinctes dans les feuilles filtrées
+        $stmt = $db->prepare("
+            SELECT COUNT(DISTINCT classe) as total
+            FROM feuilles_notes fn
+            WHERE {$whereClause}
+        ");
+        $stmt->execute($params);
+        $totalClasses = (int) ($stmt->fetch()['total'] ?? 0);
+        
+        Response::success([
+            'feuilles' => $feuilles,
+            'stats' => [
+                'total_eleves' => $totalEleves,
+                'total_classes' => $totalClasses,
+            ],
+        ]);
     }
 
     /**
@@ -282,7 +319,7 @@ class FeuilleController
                 $elevesMap[$eleveSource['id']] = $nouvelEleveId;
                 
                 // Générer un nouvel identifiant unique pour l'élève dupliqué
-                $nouvelIdentifiant = $eleveSource['identifiant'] . '-' . substr($nouvelEleveId, 0, 8);
+                $nouvelIdentifiant = $eleveSource['identifiant'];
                 
                 $db->prepare('
                     INSERT INTO eleves (id, feuille_id, identifiant, numero_ordre, nom, prenom, nom_tuteur, prenom_tuteur)

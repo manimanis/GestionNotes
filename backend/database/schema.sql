@@ -55,16 +55,20 @@ CREATE TABLE IF NOT EXISTS feuilles_notes (
 -- TABLE : eleves
 -- ============================================
 CREATE TABLE IF NOT EXISTS eleves (
-    id TEXT PRIMARY KEY,
-    feuille_id TEXT NOT NULL,
-    identifiant TEXT NOT NULL UNIQUE,
-    numero_ordre INTEGER NOT NULL,
-    nom TEXT NOT NULL,
-    prenom TEXT NOT NULL,
-    nom_tuteur TEXT DEFAULT NULL,
-    prenom_tuteur TEXT DEFAULT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    id            TEXT    PRIMARY KEY,
+    feuille_id    TEXT    NOT NULL,
+    identifiant   TEXT    NOT NULL,
+    numero_ordre  INTEGER NOT NULL,
+    nom           TEXT    NOT NULL,
+    prenom        TEXT    NOT NULL,
+    nom_tuteur    TEXT    DEFAULT NULL,
+    prenom_tuteur TEXT    DEFAULT NULL,
+    created_at    TEXT    DEFAULT (datetime('now') ),
+    updated_at    TEXT    DEFAULT (datetime('now') ),
+    UNIQUE (
+        feuille_id,
+        identifiant
+    ),
     FOREIGN KEY (feuille_id) REFERENCES feuilles_notes(id) ON DELETE CASCADE
 );
 
