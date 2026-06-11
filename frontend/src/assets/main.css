@@ -554,7 +554,6 @@ tr:hover td {
 
 /* === INLINE EDIT === */
 .inline-edit {
-  width: 60px;
   padding: 0.25rem 0.375rem;
   font-size: var(--font-size-sm);
   text-align: center;

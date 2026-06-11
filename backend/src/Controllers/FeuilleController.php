@@ -409,6 +409,192 @@ class FeuilleController
     }
 
     /**
+     * Importer des données (élèves + notes) dans une feuille
+     * POST /api/feuilles/{id}/import-data
+     *
+     * L'ordre des colonnes est fixé :
+     * N° Ordre | Nom | Prénom | Identifiant | Note Eval 1 | Note Eval 2 | ...
+     *
+     * Les évaluations sont identifiées par leur ordre (ordre ASC).
+     * Si un élève existe déjà (identifiant), ses notes sont mises à jour.
+     * Si un élève n'existe pas, il est créé.
+     */
+    public static function importData(string $id): void
+    {
+        $authUser = AuthMiddleware::authenticate();
+
+        $db = Database::getInstance()->getConnection();
+
+        // Vérifier que la feuille appartient à l'enseignant
+        $stmt = $db->prepare('SELECT * FROM feuilles_notes WHERE id = ? AND enseignant_id = ?');
+        $stmt->execute([$id, $authUser['id']]);
+        $feuille = $stmt->fetch();
+
+        if (!$feuille) {
+            Response::notFound('Feuille de notes non trouvée.');
+        }
+
+        $data = json_decode(file_get_contents('php://input'), true) ?? [];
+        $rows = $data['rows'] ?? [];
+
+        if (empty($rows)) {
+            Response::badRequest('Aucune donnée à importer.');
+        }
+
+        // Récupérer les évaluations de la feuille (triées par ordre)
+        $stmt = $db->prepare('SELECT * FROM evaluations WHERE feuille_id = ? ORDER BY ordre ASC');
+        $stmt->execute([$id]);
+        $evaluations = $stmt->fetchAll();
+
+        if (empty($evaluations)) {
+            Response::badRequest('Aucune évaluation définie dans cette feuille. Veuillez d\'abord créer des évaluations.');
+        }
+
+        // Récupérer les épreuves de la feuille
+        $stmt = $db->prepare('SELECT * FROM epreuves WHERE feuille_id = ? ORDER BY ordre ASC');
+        $stmt->execute([$id]);
+        $epreuves = $stmt->fetchAll();
+
+        $imported = 0;
+        $updated = 0;
+        $errors = [];
+
+        $db->beginTransaction();
+
+        try {
+            foreach ($rows as $index => $row) {
+                $numeroOrdre = isset($row['numero_ordre']) ? (int)$row['numero_ordre'] : ($index + 1);
+                $nom = trim($row['nom'] ?? '');
+                $prenom = trim($row['prenom'] ?? '');
+                $identifiant = trim($row['identifiant'] ?? '');
+
+                if (empty($nom) || empty($prenom) || empty($identifiant)) {
+                    $errors[] = "Ligne " . ($index + 1) . ": champs manquants (nom, prénom et identifiant requis)";
+                    continue;
+                }
+
+                // Vérifier si l'élève existe déjà (par identifiant dans cette feuille)
+                $stmt = $db->prepare('SELECT id FROM eleves WHERE identifiant = ? AND feuille_id = ?');
+                $stmt->execute([$identifiant, $id]);
+                $existingEleve = $stmt->fetch();
+
+                if ($existingEleve) {
+                    $eleveId = $existingEleve['id'];
+                    // Mettre à jour l'élève existant
+                    $db->prepare('UPDATE eleves SET numero_ordre = ?, nom = ?, prenom = ?, updated_at = datetime(\'now\') WHERE id = ?')
+                       ->execute([$numeroOrdre, $nom, $prenom, $eleveId]);
+                    $updated++;
+                } else {
+                    // Créer un nouvel élève
+                    $eleveId = UUID::generate();
+                    $db->prepare('
+                        INSERT INTO eleves (id, feuille_id, identifiant, numero_ordre, nom, prenom)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ')->execute([$eleveId, $id, $identifiant, $numeroOrdre, $nom, $prenom]);
+
+                    // Créer les entrées vides pour les notes d'évaluations
+                    foreach ($evaluations as $eval) {
+                        $db->prepare('INSERT OR IGNORE INTO notes_evaluations (id, eleve_id, evaluation_id) VALUES (?, ?, ?)')
+                           ->execute([UUID::generate(), $eleveId, $eval['id']]);
+                    }
+
+                    // Créer les entrées vides pour les notes d'épreuves
+                    foreach ($epreuves as $ep) {
+                        $db->prepare('INSERT OR IGNORE INTO notes_epreuves (id, eleve_id, epreuve_id) VALUES (?, ?, ?)')
+                           ->execute([UUID::generate(), $eleveId, $ep['id']]);
+                    }
+
+                    $imported++;
+                }
+
+                // Sauvegarder les notes d'évaluations (colonnes 4+ = notes)
+                // Les évaluations sont triées par ordre ASC, donc colonne index 4 = eval[0], 5 = eval[1], etc.
+                $notesData = $row['notes'] ?? [];
+                foreach ($notesData as $noteIndex => $noteValue) {
+                    if ($noteIndex >= count($evaluations)) break;
+
+                    $evalId = $evaluations[$noteIndex]['id'];
+                    $bareme = (float)$evaluations[$noteIndex]['bareme'];
+
+                    // Trouver ou créer l'entrée notes_evaluations
+                    $stmt = $db->prepare('SELECT id FROM notes_evaluations WHERE eleve_id = ? AND evaluation_id = ?');
+                    $stmt->execute([$eleveId, $evalId]);
+                    $noteEntry = $stmt->fetch();
+
+                    if (!$noteEntry) {
+                        $noteEntryId = UUID::generate();
+                        $db->prepare('INSERT INTO notes_evaluations (id, eleve_id, evaluation_id) VALUES (?, ?, ?)')
+                           ->execute([$noteEntryId, $eleveId, $evalId]);
+                    } else {
+                        $noteEntryId = $noteEntry['id'];
+                    }
+
+                    // Traiter la note
+                    $noteStr = trim((string)$noteValue);
+                    if ($noteStr === '' || $noteStr === '-' || $noteStr === 'null') {
+                        $db->prepare('UPDATE notes_evaluations SET note = NULL, updated_at = datetime(\'now\') WHERE id = ?')
+                           ->execute([$noteEntryId]);
+                    } else {
+                        $note = (float)$noteStr;
+                        if ($note < 0) $note = 0;
+                        if ($note > $bareme) $note = $bareme;
+
+                        $db->prepare('UPDATE notes_evaluations SET note = ?, updated_at = datetime(\'now\') WHERE id = ?')
+                           ->execute([$note, $noteEntryId]);
+                    }
+                }
+
+                // Recalculer les notes d'épreuves pour cet élève
+                self::recalculateEpreuvesForEleve($id, $eleveId);
+            }
+
+            $db->commit();
+
+        } catch (\Exception $e) {
+            $db->rollBack();
+            Response::error('Erreur lors de l\'importation: ' . $e->getMessage());
+        }
+
+        Response::success([
+            'imported' => $imported,
+            'updated' => $updated,
+            'errors' => $errors,
+            'total_rows' => count($rows)
+        ], "{$imported} élèves importés, {$updated} mis à jour.");
+    }
+
+    /**
+     * Recalculer les notes d'épreuves pour un élève
+     */
+    private static function recalculateEpreuvesForEleve(string $feuilleId, string $eleveId): void
+    {
+        $db = Database::getInstance()->getConnection();
+
+        $stmt = $db->prepare('SELECT * FROM epreuves WHERE feuille_id = ?');
+        $stmt->execute([$feuilleId]);
+        $epreuves = $stmt->fetchAll();
+
+        $stmt = $db->prepare('SELECT * FROM evaluations WHERE feuille_id = ?');
+        $stmt->execute([$feuilleId]);
+        $evaluations = $stmt->fetchAll();
+
+        $stmt = $db->prepare('SELECT evaluation_id, note FROM notes_evaluations WHERE eleve_id = ?');
+        $stmt->execute([$eleveId]);
+        $notesEval = [];
+        foreach ($stmt->fetchAll() as $n) {
+            $notesEval[$n['evaluation_id']] = $n['note'];
+        }
+
+        foreach ($epreuves as $epreuve) {
+            $note = \App\Services\NoteService::calculateEpreuveNote($epreuve['formule'], $notesEval, $evaluations);
+            if ($note !== null) {
+                $db->prepare('UPDATE notes_epreuves SET note = ?, updated_at = datetime(\'now\') WHERE eleve_id = ? AND epreuve_id = ?')
+                   ->execute([$note, $eleveId, $epreuve['id']]);
+            }
+        }
+    }
+
+    /**
      * Supprimer une feuille de notes
      * DELETE /api/feuilles/{id}
      */

@@ -24,7 +24,7 @@
           <button class="btn btn-sm btn-primary" @click="showAddEvalModal = true">+ Évaluation</button>
           <button class="btn btn-sm btn-primary" @click="showAddEpreuveModal = true">+ Épreuve</button>
           <button class="btn btn-sm btn-primary" @click="showAddEleveModal = true">+ Élève</button>
-          <button class="btn btn-sm btn-secondary" @click="showImportExcelModal = true">📥 Importer Excel</button>
+          <button class="btn btn-sm btn-secondary" @click="openImportDataModal">📥 Importer données</button>
         </div>
         
         <!-- Data Table -->
@@ -32,36 +32,45 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th class="sticky-col" style="min-width: 40px">N°</th>
-                <th class="sticky-col" style="min-width: 180px">Nom & Prénom</th>
-                <th v-for="e in evaluations" :key="e.id" class="eval-col" style="min-width: 80px">
+                <th class="sticky-col sortable-col" style="min-width: 40px" @click="toggleSort('numero_ordre')">
+                  N° {{ sortKey === 'numero_ordre' ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}
+                </th>
+                <th class="sticky-col sortable-col" style="min-width: 180px" @click="toggleSort('nom')">
+                  Nom & Prénom {{ sortKey === 'nom' ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}
+                </th>
+                <th v-for="e in evaluations" :key="e.id" class="eval-col sortable-col" style="min-width: 80px" @click="toggleSort('eval_' + e.id)">
                   <div class="col-header">
-                    <span>{{ e.nom }}</span>
+                    <span>{{ e.nom }} {{ sortKey === 'eval_' + e.id ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}</span>
                     <span class="col-meta">/{{ e.bareme }} • c:{{ e.coefficient }}</span>
-                    <button class="btn-del-col" @click="deleteEvaluation(e.id)">×</button>
+                    <button class="btn-del-col" @click.stop="deleteEvaluation(e.id)">×</button>
                   </div>
                 </th>
-                <th v-for="ep in epreuves" :key="ep.id" class="epreuve-col" style="min-width: 100px">
+                <th v-for="ep in epreuves" :key="ep.id" class="epreuve-col sortable-col" style="min-width: 100px" @click="toggleSort('ep_' + ep.id)">
                   <div class="col-header">
-                    <span>{{ ep.nom }}</span>
+                    <span>{{ ep.nom }} {{ sortKey === 'ep_' + ep.id ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}</span>
                     <span class="col-meta">c:{{ ep.coefficient }}</span>
-                    <button class="btn-del-col" @click="deleteEpreuve(ep.id)">×</button>
+                    <button class="btn-del-col" @click.stop="deleteEpreuve(ep.id)">×</button>
                   </div>
                 </th>
-                <th style="min-width: 80px">Moyenne</th>
-                <th style="min-width: 60px">Rang</th>
-                <th style="min-width: 120px">Observation</th>
+                <th class="sortable-col" style="min-width: 80px" @click="toggleSort('moyenne')">
+                  Moyenne {{ sortKey === 'moyenne' ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}
+                </th>
+                <th class="sortable-col" style="min-width: 60px" @click="toggleSort('rang')">
+                  Rang {{ sortKey === 'rang' ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}
+                </th>
+                <th class="sortable-col" style="min-width: 120px" @click="toggleSort('observation')">
+                  Observation {{ sortKey === 'observation' ? (sortDirection === 'asc' ? '▲' : '▼') : '' }}
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="eleve in eleves" :key="eleve.id">
+              <tr v-for="eleve in sortedEleves" :key="eleve.id">
                 <td class="sticky-col">{{ eleve.numero_ordre }}</td>
                 <td class="sticky-col">
                   <div class="eleve-name">
                     <strong>{{ eleve.nom }}</strong> {{ eleve.prenom }}
                   </div>
                 </td>
-                <!-- Notes d'évaluations (inline edit) -->
                 <td v-for="e in evaluations" :key="e.id" class="note-cell">
                   <input
                     type="number"
@@ -70,103 +79,115 @@
                     @change="saveNote(eleve.id, e.id, $event.target.value)"
                     min="0"
                     :max="e.bareme"
-                    step="0.5"
+                    step="0.01"
                   />
                 </td>
-                <!-- Notes d'épreuves (calculées) -->
                 <td v-for="ep in epreuves" :key="ep.id" class="note-cell calculated">
                   {{ formatNote(eleve.notes_epreuves[ep.id]) }}
                 </td>
-                <!-- Moyenne -->
                 <td class="moyenne-cell" :class="getMoyenneClass(eleve.moyenne)">
                   <strong>{{ eleve.moyenne !== null ? eleve.moyenne.toFixed(2) : '-' }}</strong>
                 </td>
-                <!-- Rang -->
                 <td class="rang-cell">
                   <span class="badge" :class="getRangBadgeClass(eleve.rang)">{{ eleve.rang }}</span>
                 </td>
-                <!-- Observation -->
                 <td>
-                  <span class="badge" :class="getObservationClass(eleve.observation)">{{ eleve.observation }}</span>
+                  <span class="badge" :class="getObservationClass(eleve.moyenne)">{{ eleve.observation }}</span>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
         
-        <!-- Modal Import Excel -->
-        <div v-if="showImportExcelModal" class="modal-overlay" @click.self="showImportExcelModal = false">
-          <div class="modal-content" style="max-width: 750px;">
+        <!-- Modal Import Données (Élèves + Notes) -->
+        <div v-if="showImportDataModal" class="modal-overlay" @click.self="showImportDataModal = false">
+          <div class="modal-content" style="max-width: 900px;">
             <div class="modal-header">
-              <h2>Importer des élèves depuis Excel</h2>
-              <button class="btn btn-sm btn-outline" @click="showImportExcelModal = false">✕</button>
+              <h2>Importer des élèves et notes</h2>
+              <button class="btn btn-sm btn-outline" @click="showImportDataModal = false">✕</button>
             </div>
             <div class="import-instructions">
               <p><strong>Instructions :</strong></p>
               <ol>
                 <li>Ouvrez votre fichier Excel</li>
-                <li>Sélectionnez les colonnes contenant les données des élèves</li>
-                <li>Copiez les données (Ctrl+C)</li>
+                <li>Sélectionnez les colonnes et copiez les données (Ctrl+C)</li>
                 <li>Collez-les dans le champ ci-dessous (Ctrl+V)</li>
                 <li>Associez chaque colonne au champ correspondant</li>
+                <li>Vérifiez l'aperçu puis cliquez sur "Importer"</li>
               </ol>
+              <p style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">
+                Les colonnes peuvent être dans n'importe quel ordre. Nom et prénom peuvent être dans la même colonne.
+                <br>Les notes vides ou "-" sont ignorées. Les élèves existants (même identifiant) sont mis à jour.
+              </p>
             </div>
             <div class="form-group">
               <label class="form-label">Données copiées depuis Excel</label>
               <textarea
-                v-model="importExcelData"
+                v-model="importDataText"
                 class="form-control"
                 rows="8"
                 placeholder="Collez ici les données depuis Excel (séparées par des tabulations)&#10;&#10;Les colonnes peuvent être dans n'importe quel ordre.&#10;Nom et prénom peuvent être dans la même colonne."
                 style="font-family: monospace; font-size: 0.85rem;"
               ></textarea>
             </div>
-            
+
             <!-- Column Mapping -->
-            <div v-if="importExcelColumns.length > 0" class="import-mapping">
+            <div v-if="importDataColumns.length > 0" class="import-mapping">
               <p><strong>Associez les colonnes :</strong></p>
               <div class="mapping-row">
                 <label class="form-label" style="min-width: 120px;">Identifiant :</label>
-                <select v-model="importColMapping.identifiant" class="form-control" style="max-width: 200px;">
+                <select v-model="importColMapping.identifiant" class="form-control" style="max-width: 250px;">
                   <option value="">-- Sélectionner --</option>
-                  <option v-for="(col, i) in importExcelColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
+                  <option v-for="(col, i) in importDataColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
                 </select>
               </div>
               <div class="mapping-row">
                 <label class="form-label" style="min-width: 120px;">N° ordre :</label>
-                <select v-model="importColMapping.numero_ordre" class="form-control" style="max-width: 200px;">
+                <select v-model="importColMapping.numero_ordre" class="form-control" style="max-width: 250px;">
                   <option value="">-- Sélectionner --</option>
-                  <option v-for="(col, i) in importExcelColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
+                  <option v-for="(col, i) in importDataColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
                 </select>
               </div>
               <div class="mapping-row">
                 <label class="form-label" style="min-width: 120px;">Nom :</label>
-                <select v-model="importColMapping.nom" class="form-control" style="max-width: 200px;">
+                <select v-model="importColMapping.nom" class="form-control" style="max-width: 250px;">
                   <option value="">-- Sélectionner --</option>
-                  <option v-for="(col, i) in importExcelColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
+                  <option v-for="(col, i) in importDataColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
                 </select>
               </div>
               <div class="mapping-row">
                 <label class="form-label" style="min-width: 120px;">Prénom :</label>
-                <select v-model="importColMapping.prenom" class="form-control" style="max-width: 200px;">
+                <select v-model="importColMapping.prenom" class="form-control" style="max-width: 250px;">
                   <option value="">-- Même colonne que le nom --</option>
                   <option value="__last__">Dernière partie après le séparateur</option>
-                  <option v-for="(col, i) in importExcelColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
+                  <option v-for="(col, i) in importDataColumns" :key="i" :value="i">Colonne {{ i + 1 }} : {{ col }}</option>
                 </select>
               </div>
               <div class="mapping-row" v-if="importColMapping.nom !== '' && importColMapping.prenom === ''">
                 <label class="form-label" style="min-width: 120px;">Séparateur :</label>
-                <select v-model="importNameSeparator" class="form-control" style="max-width: 200px;">
+                <select v-model="importNameSeparator" class="form-control" style="max-width: 250px;">
                   <option value=" ">Espace</option>
                   <option value=",">Virgule (,)</option>
                   <option value="-">Tiret (-)</option>
                 </select>
                 <span class="text-muted" style="font-size: 0.75rem; margin-left: 0.5rem;">Séparateur entre nom et prénom dans la même colonne</span>
               </div>
+              <!-- Notes mapping -->
+              <div v-if="evaluations.length > 0" style="margin-top: 0.75rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+                <p><strong>Notes des évaluations :</strong></p>
+                <div class="mapping-row" v-for="(ev, idx) in evaluations" :key="ev.id">
+                  <label class="form-label" style="min-width: 120px;">{{ ev.nom }} :</label>
+                  <select v-model="importColMapping['eval_' + idx]" class="form-control" style="max-width: 250px;">
+                    <option value="">-- Aucune colonne --</option>
+                    <option v-for="(col, ci) in importDataColumns" :key="ci" :value="ci">Colonne {{ ci + 1 }} : {{ col }}</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
-            <div v-if="importExcelPreview.length > 0" class="import-preview">
-              <p><strong>Aperçu ({{ importExcelPreview.length }} élève(s) détecté(s)) :</strong></p>
+            <!-- Aperçu des données -->
+            <div v-if="importDataPreview.length > 0" class="import-preview">
+              <p><strong>Aperçu ({{ importDataPreview.length }} élève(s) détecté(s)) :</strong></p>
               <table class="data-table" style="font-size: 0.75rem;">
                 <thead>
                   <tr>
@@ -174,34 +195,38 @@
                     <th>Identifiant</th>
                     <th>Nom</th>
                     <th>Prénom</th>
+                    <th v-for="(e, i) in evaluations" :key="e.id">{{ e.nom }}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(row, i) in importExcelPreview.slice(0, 10)" :key="i">
+                  <tr v-for="(row, i) in importDataPreview.slice(0, 10)" :key="i">
                     <td>{{ row.numero_ordre }}</td>
                     <td>{{ row.identifiant }}</td>
                     <td>{{ row.nom }}</td>
                     <td>{{ row.prenom }}</td>
+                    <td v-for="(note, ni) in row.notes" :key="ni">{{ note !== null && note !== undefined ? note : '-' }}</td>
                   </tr>
-                  <tr v-if="importExcelPreview.length > 10">
-                    <td colspan="4" class="text-muted">... et {{ importExcelPreview.length - 10 }} autre(s)</td>
+                  <tr v-if="importDataPreview.length > 10">
+                    <td :colspan="4 + evaluations.length" class="text-muted">... et {{ importDataPreview.length - 10 }} autre(s)</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <div v-if="importExcelResult" class="import-result" :class="importExcelResult.imported > 0 ? 'import-success' : 'import-error'">
-              <p v-if="importExcelResult.imported > 0">✅ {{ importExcelResult.imported }} élèves importés avec succès.</p>
-              <p v-if="importExcelResult.errors && importExcelResult.errors.length > 0" class="text-danger">
-                ⚠️ {{ importExcelResult.errors.length }} erreur(s) :
+
+            <div v-if="importDataResult" class="import-result" :class="(importDataResult.imported > 0 || importDataResult.updated > 0) ? 'import-success' : 'import-error'">
+              <p v-if="importDataResult.imported > 0">✅ {{ importDataResult.imported }} élève(s) importé(s) avec succès.</p>
+              <p v-if="importDataResult.updated > 0">🔄 {{ importDataResult.updated }} élève(s) mis à jour.</p>
+              <p v-if="importDataResult.errors && importDataResult.errors.length > 0" class="text-danger">
+                ⚠️ {{ importDataResult.errors.length }} erreur(s) :
                 <ul>
-                  <li v-for="(err, i) in importExcelResult.errors" :key="i">{{ err }}</li>
+                  <li v-for="(err, i) in importDataResult.errors" :key="i">{{ err }}</li>
                 </ul>
               </p>
             </div>
             <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" @click="showImportExcelModal = false">Fermer</button>
-              <button type="button" class="btn btn-primary" @click="importExcel" :disabled="importingExcel || importExcelPreview.length === 0">
-                {{ importingExcel ? 'Importation...' : 'Importer' }}
+              <button type="button" class="btn btn-secondary" @click="showImportDataModal = false">Fermer</button>
+              <button type="button" class="btn btn-primary" @click="importData" :disabled="importingData || importDataPreview.length === 0">
+                {{ importingData ? 'Importation...' : 'Importer' }}
               </button>
             </div>
           </div>
@@ -272,7 +297,7 @@
                 </div>
                 <div class="form-group">
                   <label class="form-label">Coefficient</label>
-                  <input type="number" v-model="evalForm.coefficient" class="form-control" step="0.5" placeholder="1" />
+                  <input type="number" v-model="evalForm.coefficient" class="form-control" step="0.01" placeholder="1" />
                 </div>
               </div>
               <div class="form-group">
@@ -301,7 +326,7 @@
               </div>
               <div class="form-group">
                 <label class="form-label">Coefficient</label>
-                <input type="number" v-model="epreuveForm.coefficient" class="form-control" step="0.5" placeholder="1" />
+                <input type="number" v-model="epreuveForm.coefficient" class="form-control" step="0.01" placeholder="1" />
               </div>
               <div class="form-group">
                 <label class="form-label">Formule</label>
@@ -357,14 +382,64 @@ const eleves = ref([])
 const evaluations = ref([])
 const epreuves = ref([])
 
+// Tri
+const sortKey = ref('')
+const sortDirection = ref('asc')
+
+function toggleSort(key) {
+  if (sortKey.value === key) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortDirection.value = 'asc'
+  }
+}
+
+function getSortValue(eleve, key) {
+  if (key === 'numero_ordre') return eleve.numero_ordre || 0
+  if (key === 'nom') return (eleve.nom || '').toLowerCase() + ' ' + (eleve.prenom || '').toLowerCase()
+  if (key === 'moyenne') return eleve.moyenne ?? -1
+  if (key === 'rang') {
+    if (eleve.rang === '-' || eleve.rang === 0) return 9999
+    return eleve.rang
+  }
+  if (key === 'observation') return (eleve.observation || '').toLowerCase()
+  if (key.startsWith('ep_')) {
+    const epId = key.substring(3)
+    return eleve.notes_epreuves?.[epId] ?? -1
+  }
+  if (key.startsWith('eval_')) {
+    const evalId = key.substring(5)
+    return eleve.notes_evaluations?.[evalId] ?? -1
+  }
+  return ''
+}
+
+const sortedEleves = computed(() => {
+  if (!sortKey.value) return eleves.value
+  const list = [...eleves.value]
+  const dir = sortDirection.value === 'asc' ? 1 : -1
+  list.sort((a, b) => {
+    const va = getSortValue(a, sortKey.value)
+    const vb = getSortValue(b, sortKey.value)
+    if (typeof va === 'string') return va.localeCompare(vb, 'fr') * dir
+    return (va - vb) * dir
+  })
+  return list
+})
+
 // Modals
 const showAddEleveModal = ref(false)
 const showAddEvalModal = ref(false)
 const showAddEpreuveModal = ref(false)
-const showImportExcelModal = ref(false)
-const importExcelData = ref('')
-const importingExcel = ref(false)
-const importExcelResult = ref(null)
+const showImportDataModal = ref(false)
+
+// Import données
+const importDataText = ref('')
+const importingData = ref(false)
+const importDataResult = ref(null)
+const importColMapping = ref({ identifiant: '', numero_ordre: '', nom: '', prenom: '' })
+const importNameSeparator = ref(' ')
 
 // Forms
 const eleveForm = ref({ identifiant: '', numero_ordre: 1, nom: '', prenom: '', nom_tuteur: '', prenom_tuteur: '' })
@@ -373,39 +448,35 @@ const epreuveForm = ref({ nom: '', coefficient: 1 })
 const selectedEvalsForFormule = ref([])
 const formuleCoefs = ref({})
 
-// Import Excel - Column mapping
-const importColMapping = ref({ identifiant: '', numero_ordre: '', nom: '', prenom: '' })
-const importNameSeparator = ref(' ')
-
-const importExcelColumns = computed(() => {
-  if (!importExcelData.value.trim()) return []
-  const firstLine = importExcelData.value.trim().split('\n')[0]
+// Import données - Colonnes détectées
+const importDataColumns = computed(() => {
+  if (!importDataText.value.trim()) return []
+  const firstLine = importDataText.value.trim().split('\n')[0]
   const cols = firstLine.split('\t')
   return cols.map(c => c.trim()).filter(c => c.length > 0)
 })
 
-const importExcelPreview = computed(() => {
-  if (!importExcelData.value.trim()) return []
-  const lines = importExcelData.value.trim().split('\n')
+// Import données - Aperçu avec mapping flexible
+const importDataPreview = computed(() => {
+  if (!importDataText.value.trim()) return []
+  const lines = importDataText.value.trim().split('\n')
   const rows = []
   const mapping = importColMapping.value
-  
+
   for (const line of lines) {
     const cols = line.split('\t')
     if (cols.length < 2) continue
-    
-    // Use column mapping if set, otherwise fallback to positional
-    const identifiant = mapping.identifiant !== '' ? (cols[mapping.identifiant] || '').trim() : (cols[0] || '').trim()
-    const numeroOrdre = mapping.numero_ordre !== '' ? parseInt(cols[mapping.numero_ordre]) : parseInt(cols[1])
-    const nomRaw = mapping.nom !== '' ? (cols[mapping.nom] || '').trim() : (cols[2] || '').trim()
-    const prenomRaw = mapping.prenom !== '' ? (cols[mapping.prenom] || '').trim() : (cols[3] || '').trim()
-    
-    // Handle combined nom/prenom in same column
+
+    const identifiant = mapping.identifiant !== '' ? (cols[mapping.identifiant] || '').trim() : ''
+    const numeroOrdre = mapping.numero_ordre !== '' ? parseInt(cols[mapping.numero_ordre]) : 0
+    const nomRaw = mapping.nom !== '' ? (cols[mapping.nom] || '').trim() : ''
+    const prenomRaw = mapping.prenom !== '' ? (cols[mapping.prenom] || '').trim() : ''
+
     let nom = nomRaw
     let prenom = prenomRaw
-    
+
+    // Gérer la fusion nom/prénom dans la même colonne
     if (mapping.prenom === '' && nomRaw) {
-      // Nom and prenom in same column - split by separator
       const sep = importNameSeparator.value
       const parts = nomRaw.split(sep)
       if (parts.length >= 2) {
@@ -413,7 +484,6 @@ const importExcelPreview = computed(() => {
         prenom = parts.slice(1).join(sep).trim()
       }
     } else if (mapping.prenom === '__last__') {
-      // Last part after separator
       const sep = importNameSeparator.value
       const parts = nomRaw.split(sep)
       if (parts.length >= 2) {
@@ -421,42 +491,71 @@ const importExcelPreview = computed(() => {
         prenom = parts.slice(1).join(sep).trim()
       }
     }
-    
+
     if (!identifiant && !nom) continue
-    
+
+    // Récupérer les notes des évaluations
+    const notes = []
+    for (let i = 0; i < evaluations.value.length; i++) {
+      const colIndex = mapping['eval_' + i]
+      if (colIndex !== undefined && colIndex !== '' && cols[colIndex] !== undefined) {
+        const val = cols[colIndex].trim()
+        if (val === '' || val === '-' || val === 'null') {
+          notes.push(null)
+        } else {
+          const num = parseFloat(val.replace(',', '.'))
+          notes.push(isNaN(num) ? null : num)
+        }
+      } else {
+        notes.push(null)
+      }
+    }
+
     rows.push({
-      identifiant: identifiant,
       numero_ordre: numeroOrdre || (rows.length + 1),
+      identifiant: identifiant,
       nom: nom,
-      prenom: prenom
+      prenom: prenom,
+      notes: notes
     })
   }
   return rows
 })
 
-async function importExcel() {
-  if (importExcelPreview.value.length === 0) return
-  importingExcel.value = true
-  importExcelResult.value = null
+function openImportDataModal() {
+  importDataText.value = ''
+  importDataResult.value = null
+  importColMapping.value = { identifiant: '', numero_ordre: '', nom: '', prenom: '' }
+  importNameSeparator.value = ' '
+  // Reset eval mapping
+  for (let i = 0; i < 20; i++) {
+    importColMapping.value['eval_' + i] = ''
+  }
+  showImportDataModal.value = true
+}
+
+async function importData() {
+  if (importDataPreview.value.length === 0) return
+  importingData.value = true
+  importDataResult.value = null
   try {
-    const res = await apiClient.post('/eleves/import-paste', {
-      feuille_id: feuilleId.value,
-      rows: importExcelPreview.value
+    const res = await apiClient.post(`/feuilles/${feuilleId.value}/import-data`, {
+      rows: importDataPreview.value
     })
-    importExcelResult.value = res.data.data
-    if (res.data.data.imported > 0) {
+    importDataResult.value = res.data.data
+    if (res.data.data.imported > 0 || res.data.data.updated > 0) {
       await loadFeuille()
     }
   } catch (e) {
     alert(e.response?.data?.message || 'Erreur lors de l\'importation')
   } finally {
-    importingExcel.value = false
+    importingData.value = false
   }
 }
 
 function formatNote(note) {
   if (note === null || note === undefined || note === '') return ''
-  return note
+  return note.toFixed(2)
 }
 
 function getMoyenneClass(moyenne) {
@@ -474,11 +573,11 @@ function getRangBadgeClass(rang) {
   return 'badge-primary'
 }
 
-function getObservationClass(obs) {
-  if (obs === 'Excellent') return 'badge-success'
-  if (obs === 'Très bien') return 'badge-primary'
-  if (obs === 'Bien') return 'badge-info'
-  if (obs === 'Passable') return 'badge-warning'
+function getObservationClass(moyenne) {
+  if (moyenne >= 18) return 'badge-success'
+  if (moyenne >= 14) return 'badge-primary'
+  if (moyenne >= 12) return 'badge-info'
+  if (moyenne >= 10) return 'badge-warning'
   return 'badge-danger'
 }
 
@@ -506,7 +605,6 @@ async function saveNote(eleveId, evalId, value) {
       evaluation_id: evalId,
       note: note
     })
-    // Recharger pour obtenir les calculs mis à jour
     await loadFeuille()
   } catch (e) {
     console.error('Erreur enregistrement note:', e)
@@ -546,7 +644,6 @@ async function addEvaluation() {
 
 async function addEpreuve() {
   try {
-    // Construire la formule JSON
     const formuleItems = selectedEvalsForFormule.value.map(evalId => ({
       eval: evalId,
       coef: parseFloat(formuleCoefs.value[evalId]) || 0.5
@@ -602,7 +699,6 @@ async function duplicateFeuille() {
   try {
     const res = await apiClient.post(`/feuilles/${feuilleId.value}/duplicate`)
     alert(res.data.message || 'Feuille dupliquée avec succès !')
-    // Rediriger vers la nouvelle feuille
     if (res.data.data && res.data.data.id) {
       window.location.href = `/GestionNotes/feuilles/${res.data.data.id}`
     } else {
@@ -700,7 +796,7 @@ th:hover .btn-del-col {
 }
 
 .note-cell {
-  text-align: center;
+  text-align: right;
 }
 
 .note-cell.calculated {
@@ -721,6 +817,16 @@ th:hover .btn-del-col {
 
 .rang-cell {
   text-align: center;
+}
+
+.sortable-col {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.sortable-col:hover {
+  background: var(--bg-tertiary);
 }
 
 .form-help {
@@ -755,13 +861,6 @@ th:hover .btn-del-col {
 .import-instructions ol {
   margin: 0.5rem 0;
   padding-left: 1.25rem;
-}
-
-.import-instructions code {
-  background: var(--bg-tertiary);
-  padding: 0.125rem 0.375rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.8rem;
 }
 
 .import-preview {
