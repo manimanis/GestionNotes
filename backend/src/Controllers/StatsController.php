@@ -111,12 +111,40 @@ class StatsController
             ];
         }
         
+        // Données brutes pour boxplots
+        $boxplotEpreuves = [];
+        foreach ($epreuves as $epreuve) {
+            $notes = [];
+            foreach ($elevesWithGrades as $e) {
+                $val = $e['notes_epreuves'][$epreuve['id']] ?? null;
+                if ($val !== null) {
+                    $notes[] = (float)$val;
+                }
+            }
+            sort($notes);
+            $boxplotEpreuves[] = [
+                'nom' => $epreuve['nom'],
+                'notes' => $notes,
+            ];
+        }
+
+        // Boxplot des moyennes générales
+        $moyennesGenerales = [];
+        foreach ($elevesWithGrades as $e) {
+            if ($e['moyenne'] !== null) {
+                $moyennesGenerales[] = (float)$e['moyenne'];
+            }
+        }
+        sort($moyennesGenerales);
+
         Response::success([
             'feuille' => $feuille,
             'stats' => $stats,
             'moyennes_evaluations' => $moyennesEvaluations,
             'distribution_evaluations' => $distributionEvaluations,
             'palier' => $palier,
+            'boxplot_epreuves' => $boxplotEpreuves,
+            'boxplot_moyennes' => $moyennesGenerales,
         ]);
     }
 }

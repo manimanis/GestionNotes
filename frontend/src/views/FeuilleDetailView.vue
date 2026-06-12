@@ -521,9 +521,10 @@ function calculateWeightedAverage(notesEpreuvesData, epreuvesData) {
 
 function generateObservation(moyenne) {
   if (moyenne === null || moyenne === undefined) return 'Notes insuffisantes'
-  if (moyenne >= 16) return 'Excellent'
-  if (moyenne >= 14) return 'Très bien'
-  if (moyenne >= 12) return 'Bien'
+  if (moyenne >= 18) return 'Excellent'
+  if (moyenne >= 16) return 'Très bien'
+  if (moyenne >= 14) return 'Bien'
+  if (moyenne >= 12) return 'Assez bien'
   if (moyenne >= 10) return 'Passable'
   return 'Insuffisant'
 }
@@ -1015,7 +1016,7 @@ function formatIdentifiant(identifiant) {
 
 function getMoyenneClass(moyenne) {
   if (moyenne === null || moyenne === undefined) return ''
-  if (moyenne >= 16) return 'moyenne-excellent'
+  if (moyenne >= 18) return 'moyenne-excellent'
   if (moyenne >= 14) return 'moyenne-tb'
   if (moyenne >= 12) return 'moyenne-bien'
   if (moyenne >= 10) return 'moyenne-passable'
@@ -1167,7 +1168,7 @@ onMounted(loadFeuille)
 }
 
 .table-container {
-  max-height: calc(100vh - 320px);
+  /*max-height: calc(100vh - 320px); */
   overflow: auto;
 }
 

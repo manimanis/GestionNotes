@@ -13,11 +13,15 @@
       <!-- Filtres -->
       <div class="filters-bar">
         <input type="text" v-model="searchQuery" class="form-control" placeholder="Rechercher par classe, matière..." style="max-width: 300px" />
-        <select v-model="filterTrimestre" class="form-control" style="max-width: 150px">
-          <option value="">Tous les trimestres</option>
-          <option value="1">Trimestre 1</option>
-          <option value="2">Trimestre 2</option>
-          <option value="3">Trimestre 3</option>
+        <select
+          class="form-control period-select"
+          :value="anneeScolaireStore.combinedValue"
+          @change="anneeScolaireStore.setCombinedSelection($event.target.value)"
+        >
+          <option value="" disabled>Choisir une période...</option>
+          <option v-for="opt in anneeScolaireStore.combinedOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
         </select>
       </div>
       
@@ -158,7 +162,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import apiClient from '@/api/client'
 import Sidebar from '@/components/Sidebar.vue'
 import { useAnneeScolaireStore } from '@/stores/anneeScolaire'
@@ -167,7 +171,6 @@ const anneeScolaireStore = useAnneeScolaireStore()
 const loading = ref(true)
 const feuilles = ref([])
 const searchQuery = ref('')
-const filterTrimestre = ref('')
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteConfirm = ref(false)
@@ -183,12 +186,12 @@ const filteredFeuilles = computed(() => {
   if (anneeScolaireStore.anneeScolaire) {
     list = list.filter(f => f.annee_scolaire === anneeScolaireStore.anneeScolaire)
   }
+  if (anneeScolaireStore.trimestre) {
+    list = list.filter(f => String(f.trimestre) === String(anneeScolaireStore.trimestre))
+  }
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(f => f.classe.toLowerCase().includes(q) || f.matiere.toLowerCase().includes(q))
-  }
-  if (filterTrimestre.value) {
-    list = list.filter(f => String(f.trimestre) === filterTrimestre.value)
   }
   return list
 })
@@ -276,6 +279,11 @@ onMounted(loadFeuilles)
   display: flex;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+.period-select {
+  max-width: 250px;
 }
 
 .feuilles-grid {

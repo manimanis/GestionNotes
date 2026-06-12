@@ -54,14 +54,23 @@
             </div>
           </div>
           
-          <!-- Moyennes par évaluation -->
-          <div class="card">
+          <!-- Boxplot combiné épreuves + moyennes générales -->
+          <div class="card" v-if="boxplotCombinedData.length > 0">
             <div class="card-header">
-              <h2>Moyennes par évaluation</h2>
+              <h2>📦 Distribution des notes</h2>
             </div>
-            <div style="height: 300px;">
-              <canvas ref="evalMoyennesChart"></canvas>
+            <div class="boxplot-legend">
+              <span class="legend-item"><span class="legend-line"></span> Médiane</span>
+              <span class="legend-item"><span class="legend-diamond"></span> Moyenne</span>
+              <span class="legend-item"><span class="legend-dot"></span> Valeur aberrante</span>
             </div>
+            <BoxplotChart
+              :data="boxplotCombinedData"
+              :min="0"
+              :max="20"
+              :width="Math.max(520, boxplotCombinedData.length * 90)"
+              :height="300"
+            />
           </div>
           
           <!-- Détail des stats -->
@@ -91,10 +100,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import apiClient from '@/api/client'
 import Sidebar from '@/components/Sidebar.vue'
+import BoxplotChart from '@/components/BoxplotChart.vue'
 import { Chart, registerables } from 'chart.js'
 
 Chart.register(...registerables)
@@ -106,7 +116,6 @@ const feuilleStats = ref(null)
 
 const distributionChart = ref(null)
 const top5Chart = ref(null)
-const evalMoyennesChart = ref(null)
 let charts = []
 
 function getStatClass(val) {
@@ -114,6 +123,20 @@ function getStatClass(val) {
   if (val >= 10) return 'text-warning'
   return 'text-danger'
 }
+
+const boxplotCombinedData = computed(() => {
+  if (!feuilleStats.value) return []
+  const items = []
+  if (feuilleStats.value.boxplot_epreuves) {
+    for (const ep of feuilleStats.value.boxplot_epreuves) {
+      items.push({ label: ep.nom, values: ep.notes })
+    }
+  }
+  if (feuilleStats.value.boxplot_moyennes && feuilleStats.value.boxplot_moyennes.length > 0) {
+    items.push({ label: 'Moyennes', values: feuilleStats.value.boxplot_moyennes })
+  }
+  return items
+})
 
 function renderCharts() {
   // Nettoyer les anciens charts
@@ -187,39 +210,6 @@ function renderCharts() {
     })
     charts.push(chart)
   }
-
-  // 3. Moyennes par évaluation
-  if (evalMoyennesChart.value && feuilleStats.value.moyennes_evaluations.length > 0) {
-    const ctx = evalMoyennesChart.value.getContext('2d')
-    const chart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: feuilleStats.value.moyennes_evaluations.map(e => e.nom),
-        datasets: [
-          {
-            label: 'Moyenne',
-            data: feuilleStats.value.moyennes_evaluations.map(e => e.moyenne),
-            backgroundColor: '#4f46e5',
-            borderRadius: 6,
-          },
-          {
-            label: 'Barème',
-            data: feuilleStats.value.moyennes_evaluations.map(e => e.bareme),
-            backgroundColor: '#94a3b8',
-            borderRadius: 6,
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: { beginAtZero: true }
-        }
-      }
-    })
-    charts.push(chart)
-  }
 }
 
 onMounted(async () => {
@@ -268,6 +258,43 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
+}
+
+.boxplot-legend {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.legend-line {
+  display: inline-block;
+  width: 16px;
+  height: 3px;
+  background: #6b7280;
+}
+
+.legend-diamond {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #ef4444;
+  transform: rotate(45deg);
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
 }
 
 .stats-details {

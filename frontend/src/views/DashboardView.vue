@@ -134,9 +134,13 @@ async function loadDashboard() {
 
 function applyFilter() {
   const annee = anneeScolaireStore.anneeScolaire
+  const trim = anneeScolaireStore.trimestre
   let filtered = allFeuilles.value
   if (annee) {
-    filtered = allFeuilles.value.filter(f => f.annee_scolaire === annee)
+    filtered = filtered.filter(f => f.annee_scolaire === annee)
+  }
+  if (trim) {
+    filtered = filtered.filter(f => String(f.trimestre) === String(trim))
   }
   
   recentFeuilles.value = filtered
@@ -153,8 +157,8 @@ function applyFilter() {
 
 onMounted(loadDashboard)
 
-// Recharger quand l'année scolaire change
-watch(() => anneeScolaireStore.anneeScolaire, () => {
+// Recharger quand l'année scolaire ou le trimestre change
+watch(() => [anneeScolaireStore.anneeScolaire, anneeScolaireStore.trimestre], () => {
   applyFilter()
 })
 </script>

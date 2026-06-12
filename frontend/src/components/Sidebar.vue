@@ -28,19 +28,6 @@
       </router-link>
     </nav>
     
-    <div class="sidebar-year-selector" v-if="!isCollapsed">
-      <label class="year-label">📅 Année scolaire</label>
-      <select
-        class="year-select"
-        :value="anneeScolaireStore.anneeScolaire"
-        @change="anneeScolaireStore.setAnneeScolaire($event.target.value)"
-      >
-        <option value="" disabled>Choisir...</option>
-        <option v-for="year in anneeScolaireStore.availableAnnees" :key="year" :value="year">
-          {{ year }}
-        </option>
-      </select>
-    </div>
 
     <div class="sidebar-footer">
       <div class="user-info" v-if="authStore.user">
@@ -62,10 +49,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useAnneeScolaireStore } from '@/stores/anneeScolaire'
-
 const authStore = useAuthStore()
-const anneeScolaireStore = useAnneeScolaireStore()
 const router = useRouter()
 const isCollapsed = ref(false)
 
@@ -182,38 +166,6 @@ function handleLogout() {
   font-size: var(--font-size-sm);
 }
 
-.sidebar-year-selector {
-  padding: 0.75rem;
-  border-top: 1px solid var(--border-color);
-}
-
-.year-label {
-  display: block;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  font-weight: 500;
-  margin-bottom: 0.375rem;
-}
-
-.year-select {
-  width: 100%;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-family);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.year-select:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px var(--primary-light);
-}
 
 .sidebar-footer {
   padding: 1rem 0.75rem;

@@ -3,13 +3,53 @@ import { ref, computed } from 'vue'
 
 export const useAnneeScolaireStore = defineStore('anneeScolaire', () => {
   const anneeScolaire = ref(localStorage.getItem('annee_scolaire') || '')
+  const trimestre = ref(localStorage.getItem('trimestre') || '')
   const availableAnnees = ref([])
 
   const hasSelection = computed(() => !!anneeScolaire.value)
 
+  // Options combinées année + trimestre
+  const combinedOptions = computed(() => {
+    const options = []
+    for (const year of availableAnnees.value) {
+      for (let t = 1; t <= 3; t++) {
+        options.push({
+          value: `${year}|${t}`,
+          label: `${year} - Trimestre ${t}`,
+          annee: year,
+          trimestre: t
+        })
+      }
+    }
+    return options
+  })
+
+  // Valeur combinée actuelle
+  const combinedValue = computed(() => {
+    if (anneeScolaire.value && trimestre.value) {
+      return `${anneeScolaire.value}|${trimestre.value}`
+    }
+    return ''
+  })
+
+  function setCombinedSelection(value) {
+    if (value) {
+      const [annee, trimestreVal] = value.split('|')
+      anneeScolaire.value = annee
+      trimestre.value = trimestreVal
+      localStorage.setItem('annee_scolaire', annee)
+      localStorage.setItem('trimestre', trimestreVal)
+    }
+  }
+
   function setAnneeScolaire(annee) {
     anneeScolaire.value = annee
     localStorage.setItem('annee_scolaire', annee)
+  }
+
+  function setTrimestre(t) {
+    trimestre.value = t
+    localStorage.setItem('trimestre', t)
   }
 
   function setAvailableAnnees(annees) {
@@ -30,13 +70,23 @@ export const useAnneeScolaireStore = defineStore('anneeScolaire', () => {
         setAnneeScolaire(years[0])
       }
     }
+
+    // Si aucun trimestre n'est sélectionné, prendre le 1er
+    if (!trimestre.value) {
+      setTrimestre('1')
+    }
   }
 
   return {
     anneeScolaire,
+    trimestre,
     availableAnnees,
     hasSelection,
+    combinedOptions,
+    combinedValue,
+    setCombinedSelection,
     setAnneeScolaire,
+    setTrimestre,
     setAvailableAnnees,
     initFromFeuilles
   }

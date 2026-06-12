@@ -238,12 +238,14 @@ class NoteService
             return 'Notes insuffisantes';
         }
         
-        if ($moyenne >= 16) {
+        if ($moyenne >= 18) {
             return 'Excellent';
-        } elseif ($moyenne >= 14) {
+        } elseif ($moyenne >= 16) {
             return 'Très bien';
-        } elseif ($moyenne >= 12) {
+        } elseif ($moyenne >= 14) {
             return 'Bien';
+        } elseif ($moyenne >= 12) {
+            return 'Assez bien';
         } elseif ($moyenne >= 10) {
             return 'Passable';
         } else {
